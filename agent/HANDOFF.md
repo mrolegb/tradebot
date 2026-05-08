@@ -19,7 +19,13 @@ The project is a Binance Futures trading bot MVP with:
 - FastAPI backend
 - React/Vite dashboard
 
-Git repository is initialized, but commits may still be blocked until local git identity is configured.
+Git repository is initialized and connected to:
+
+```text
+git@github.com:mrolegb/tradebot.git
+```
+
+The initial MVP was pushed to `main`.
 
 ## Current Running Services
 
@@ -61,7 +67,7 @@ Tests currently pass:
 
 ```powershell
 .\task.ps1 test
-# 6 passed
+# 35 passed
 ```
 
 Frontend build currently succeeds:
@@ -69,6 +75,19 @@ Frontend build currently succeeds:
 ```powershell
 .\task.ps1 web-build
 ```
+
+CI workflow:
+
+```text
+.github/workflows/ci.yml
+```
+
+It runs on every branch push and pull request:
+- Python 3.13 install
+- `python -m pytest -q`
+- Node 24 install
+- `npm ci`
+- `npm run build`
 
 ## Main Structure
 
@@ -110,9 +129,50 @@ configs/
   binance_testnet.yaml
   binance_live.yaml
 tests/
+  test_api_controls.py
+  test_batch_aggregate.py
+  test_binance_client.py
+  test_breakout_filters.py
+  test_config_loader.py
+  test_indicators.py
+  test_order_executor.py
+  test_reporting_readers.py
+  test_runtime_state.py
+  test_storage_database.py
 agent/
   HANDOFF.md
 ```
+
+## Test Coverage
+
+Current Python test suite has 35 tests.
+
+Covered areas:
+- API dashboard/options behavior
+- API profile and strategy validation
+- API Binance testnet/live start guards
+- API start/stop happy path with a mocked background task
+- batch aggregate calculations
+- Binance signed endpoint credentials guard
+- config loader validation
+- cooldown manager
+- risk manager
+- simulator candles and account behavior
+- simulation report file generation
+- strategy factory
+- breakout filters
+- indicators
+- order executor safety behavior
+- reporting readers
+- runtime state
+- SQLite trade storage
+- backtest engine smoke behavior
+
+Known remaining useful tests:
+- true candle-by-candle simulation state once implemented
+- historical data ingestion once added
+- frontend component tests if the dashboard grows
+- testnet trading loop tests once Binance testnet execution exists
 
 ## Runtime Profiles
 
@@ -301,7 +361,7 @@ Recommended next technical steps:
 5. Implement Binance testnet trading loop with dry-run guard.
 6. Add explicit confirmation and env flag before enabling live mode.
 7. Improve dashboard feedback while long tasks run.
-8. Add backend tests for profile selection and start/stop behavior.
+8. Add frontend component tests if dashboard behavior becomes more complex.
 
 ## Safety Notes
 
@@ -320,4 +380,3 @@ Before live/testnet start is allowed, implement:
 - audit logging
 
 The current dashboard controls are safe for simulator only.
-
