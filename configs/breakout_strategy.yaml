@@ -1,0 +1,5 @@
+strategy:
+  name: breakout
+  params:
+    lookback: 20
+

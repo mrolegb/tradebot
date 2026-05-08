@@ -1,0 +1,38 @@
+app:
+  mode: paper
+  log_level: INFO
+
+exchange:
+  name: binance_futures
+  testnet: true
+  rest_url: https://testnet.binancefuture.com
+  websocket_url: wss://stream.binancefuture.com
+
+trading:
+  symbols:
+    - BTCUSDT
+    - ETHUSDT
+  timeframe: 5m
+  leverage: 1
+  quote_balance: 1000
+
+risk:
+  max_risk_per_trade_percent: 1
+  max_daily_loss_percent: 3
+  max_open_positions: 1
+
+cooldown:
+  enabled: true
+  after_loss_minutes: 10
+  after_2_losses_minutes: 30
+  after_3_losses_minutes: 120
+
+storage:
+  sqlite_path: data/tradebot.sqlite3
+
+strategy:
+  name: ema_cross
+  params:
+    fast_period: 9
+    slow_period: 21
+

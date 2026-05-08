@@ -1,0 +1,7 @@
+strategy:
+  name: rsi_mean_reversion
+  params:
+    period: 14
+    oversold: 30
+    overbought: 70
+

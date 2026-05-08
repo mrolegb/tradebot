@@ -1,0 +1,74 @@
+app:
+  mode: simulator
+  log_level: INFO
+
+exchange:
+  name: simulated_binance_futures
+  testnet: true
+  rest_url: local://binance-futures
+  websocket_url: local://binance-futures-stream
+
+trading:
+  symbols:
+    - BTCUSDT
+    - ETHUSDT
+  timeframe: 5m
+  leverage: 1
+  quote_balance: 1000
+
+risk:
+  max_risk_per_trade_percent: 1
+  max_daily_loss_percent: 3
+  max_open_positions: 1
+
+cooldown:
+  enabled: true
+  after_loss_minutes: 10
+  after_2_losses_minutes: 30
+  after_3_losses_minutes: 120
+
+storage:
+  sqlite_path: data/local_test.sqlite3
+
+strategy:
+  name: breakout
+  params:
+    lookback: 20
+    breakout_buffer_percent: 0.12
+    trend_fast_period: 21
+    trend_slow_period: 55
+    min_trend_gap_percent: 0.03
+    volatility_period: 20
+    min_volatility_percent: 0.02
+    max_volatility_percent: 0.45
+    allow_shorts: true
+
+simulation:
+  candles_limit: 1000
+  output_dir: reports/local_test
+  seed: 42
+  market_regime: uptrend
+  stop_loss_percent: 1
+  take_profit_percent: 2
+  fee_rate_percent: 0.04
+  spread_percent: 0.02
+  slippage_percent: 0.01
+  funding_rate_percent: 0.01
+  funding_interval_hours: 8
+  batch_seeds:
+    - 1
+    - 2
+    - 3
+    - 4
+    - 5
+    - 6
+    - 7
+    - 8
+    - 9
+    - 10
+  batch_regimes:
+    - uptrend
+    - downtrend
+    - choppy
+    - high_volatility
+    - low_volatility

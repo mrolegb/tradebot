@@ -1,0 +1,37 @@
+app:
+  mode: live
+  log_level: INFO
+
+exchange:
+  name: binance_futures
+  testnet: false
+  rest_url: https://fapi.binance.com
+  websocket_url: wss://fstream.binance.com
+
+trading:
+  symbols:
+    - BTCUSDT
+    - ETHUSDT
+  timeframe: 5m
+  leverage: 1
+  quote_balance: 1000
+
+risk:
+  max_risk_per_trade_percent: 0.25
+  max_daily_loss_percent: 1
+  max_open_positions: 1
+
+cooldown:
+  enabled: true
+  after_loss_minutes: 30
+  after_2_losses_minutes: 120
+  after_3_losses_minutes: 360
+
+storage:
+  sqlite_path: data/binance_live.sqlite3
+
+strategy:
+  name: breakout
+  params:
+    lookback: 20
+

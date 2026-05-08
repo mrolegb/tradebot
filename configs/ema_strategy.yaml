@@ -1,0 +1,6 @@
+strategy:
+  name: ema_cross
+  params:
+    fast_period: 9
+    slow_period: 21
+
