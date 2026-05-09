@@ -15,8 +15,12 @@ from app.types import Candle
 class BinanceFuturesClient:
     def __init__(self, config: ExchangeConfig, api_key: str | None = None, api_secret: str | None = None) -> None:
         self.config = config
-        self.api_key = api_key or os.getenv("BINANCE_API_KEY")
-        self.api_secret = api_secret or os.getenv("BINANCE_API_SECRET")
+
+        api_key_env = config.api_key_env or "BINANCE_API_KEY"
+        api_secret_env = config.api_secret_env or "BINANCE_API_SECRET"
+
+        self.api_key = api_key or os.getenv(api_key_env)
+        self.api_secret = api_secret or os.getenv(api_secret_env)
         self.http = httpx.AsyncClient(base_url=config.rest_url, timeout=10)
 
     async def close(self) -> None:
@@ -120,4 +124,3 @@ class BinanceFuturesClient:
         )
         response.raise_for_status()
         return response
-
