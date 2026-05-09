@@ -1,90 +1,70 @@
 # Tradebot Agent Handoff
 
-## Current Direction
+## Product Goal
 
-The project direction changed from a pure simulation MVP into a conservative autonomous trading runtime project.
+Tradebot is evolving from a report-style simulator into a conservative autonomous trading runtime.
 
-The intended product is:
+The intended user experience is intentionally simple:
 
-- low-frequency;
-- low-leverage;
-- minimal user interaction;
-- safety-first;
-- capable of running unattended for long periods;
-- capable of pausing itself safely;
-- able to recover state after restart;
-- transparent about decisions and failures.
-
-The user does NOT want:
-- high-frequency trading;
-- aggressive leverage;
-- martingale behavior;
-- overcomplicated UI;
-- constant manual babysitting.
-
-The intended workflow is:
-
-1. User deposits a controlled amount of capital.
-2. User starts the bot.
+1. User deposits a controlled amount of money.
+2. User starts the runtime.
 3. Bot trades conservatively.
-4. Bot pauses itself if conditions become unsafe.
-5. User reviews results later.
+4. Bot pauses itself automatically if conditions become unsafe.
+5. User checks results later.
 
-## Important Safety Philosophy
+The project is intentionally NOT trying to become:
 
-Tradebot should prefer:
+- a high-frequency system;
+- an aggressive leverage bot;
+- a martingale engine;
+- a complicated trader terminal;
+- a "trade every minute" machine.
 
-- pausing over forcing trades;
-- reducing risk over maximizing activity;
-- holding no position over uncertain execution;
-- preserving state over resetting blindly.
+The core philosophy is:
 
-The project should not evolve into an unsafe “always trade” system.
+- safety first;
+- runtime reliability first;
+- low operational stress;
+- transparency over aggressiveness.
 
-## Current State
+## Current Architecture
 
-Repository:
+The repository now contains:
 
-```text
-git@github.com:mrolegb/tradebot.git
-```
+### Backend
 
-Python target:
+- FastAPI runtime API
+- runtime supervisor
+- candle runtime engine
+- reconciliation layer
+- dry-run execution layer
+- guarded Binance testnet execution foundation
+- runtime persistence
+- audit logging
+- watchdog/failsafe foundation
+- runtime recovery foundation
+- runtime operations storage
+- autonomous scheduler foundation
 
-```text
-3.13.12
-```
+### Frontend
 
-Frontend:
-
-```text
-Node v24.13.0
-npm 11.6.2
-```
-
-Current architecture includes:
-
-- FastAPI backend
 - React/Vite dashboard
-- local simulator
-- report generator
-- batch robustness testing
-- strategy layer
-- risk manager
-- cooldown manager
-- runtime state
-- SQLite runtime persistence foundation
+- runtime health visibility
+- supervisor visibility
+- engine cycle visibility
+- runtime operations panel
+- equity curve charting
+- runtime control panel
+
+### Infrastructure
+
+- SQLite runtime storage
 - CI workflow
+- pytest coverage
+- runtime persistence layer
+- operational audit trail foundation
 
-## Important Runtime Reality
-
-Current `Start` behavior still runs repeated report-style simulations.
-
-This is NOT yet the intended final runtime.
-
-The next architectural goal is a true candle-driven autonomous runtime engine.
-
-## Existing Runtime Profiles
+## Current Runtime Profiles
 
 Defined in:
 
@@ -100,167 +80,195 @@ Profiles:
 
 Current behavior:
 
-- `simulation` can run.
-- `binance_testnet` returns `501`.
-- `binance_live` returns `403`.
+- `simulation` works.
+- `binance_testnet` supports guarded runtime engine execution.
+- `binance_live` is intentionally blocked.
 
-These guards are intentional.
+The live block is intentional.
 
-Do not remove them casually.
+Do NOT casually remove it.
 
-## Current Safe Development Sequence
+## Runtime Engine
 
-The recommended implementation order is:
-
-1. Runtime persistence
-2. Runtime state machine
-3. Runtime audit logging
-4. Circuit breaker / failsafe layer
-5. Binance testnet execution adapter
-6. Candle-driven runtime engine
-7. Recovery/reconciliation logic
-8. Dashboard runtime visibility
-9. Long-running testnet soak testing
-10. Only then consider live mode
-
-## Current Active Branch
-
-Current autonomous runtime work branch:
+Main runtime module:
 
 ```text
-agent/autonomous-runtime-foundation
+app/runtime/engine.py
 ```
 
-This branch is intended to become the main runtime/failsafe/testnet foundation PR.
+Current engine architecture:
 
-## Runtime Persistence
+1. Fetch candles
+2. Validate runtime conditions
+3. Generate execution intent
+4. Run safety evaluation
+5. Reconcile exchange state
+6. Execute dry-run/testnet flow
+7. Persist runtime metadata
+8. Update watchdog/runtime state
 
-`app/runtime/storage.py` now exists.
+The runtime is now candle-driven instead of purely report-driven.
+
+## Execution Modes
+
+Supported modes:
+
+```text
+DRY_RUN
+TESTNET
+```
+
+### Dry Run
 
 Purpose:
 
-- persist runtime snapshots;
-- persist audit events;
-- provide future recovery foundation.
+- autonomous runtime validation;
+- strategy evaluation;
+- safety validation;
+- reconciliation validation;
+- runtime orchestration testing.
 
-This is intentionally infrastructure-first.
+No real exchange orders are submitted.
 
-## Intended Runtime State Machine
+### Testnet
 
-Target lifecycle states:
+Purpose:
+
+- guarded exchange integration;
+- runtime operational testing;
+- reconciliation testing;
+- restart/recovery validation.
+
+Live execution still remains blocked.
+
+## Runtime Supervisor
+
+Main module:
 
 ```text
-IDLE
-STARTING
-RUNNING
-PAUSED
-STOPPING
-STOPPED
-ERROR
+app/runtime/operations.py
 ```
 
-The future runtime engine should use explicit transitions instead of only a boolean `running` flag.
+Current capabilities:
 
-## Intended Failsafe Behavior
+- autonomous runtime scheduling;
+- long-running loop orchestration;
+- watchdog monitoring;
+- duplicate execution prevention;
+- exposure policy validation;
+- cooldown handling;
+- runtime persistence;
+- pending recovery inspection;
+- reconciliation persistence.
 
-The runtime should eventually pause automatically when:
+## Runtime Safety Philosophy
 
-- Binance latency spikes;
-- stale market data is detected;
-- repeated API failures occur;
-- reconciliation fails;
-- max daily loss triggers;
-- exchange state becomes uncertain.
+Tradebot should prefer:
 
-Desired behavior:
+- pausing over forcing trades;
+- reducing exposure over increasing activity;
+- no position over uncertain state;
+- reconciliation over assumptions;
+- preserving state over resetting blindly.
 
-- stop opening new positions;
-- preserve runtime state;
-- wait for cooldown/backoff;
-- retry safely;
-- expose pause reason in dashboard/API.
+The runtime should automatically pause when:
 
-## Intended Runtime Loop
+- reconciliation becomes unhealthy;
+- exchange state becomes uncertain;
+- repeated runtime failures occur;
+- watchdog health degrades;
+- stale market data appears;
+- runtime recovery cannot guarantee consistency.
 
-The future runtime should:
+## Runtime Operations Storage
 
-1. Fetch fresh candles.
-2. Validate market data freshness.
-3. Evaluate strategy.
-4. Run risk checks.
-5. Build execution intent.
-6. Execute on testnet.
-7. Reconcile positions/orders.
-8. Persist runtime snapshot.
-9. Emit audit events.
-10. Sleep until next cycle.
+Current SQLite runtime storage tracks:
 
-This should be incremental candle processing, not repeated full-report simulations.
+- runtime records;
+- reconciliation records;
+- pending recovery state;
+- runtime actions;
+- watchdog state;
+- runtime metadata.
+
+This exists to support:
+
+- restart recovery;
+- auditability;
+- operational debugging;
+- reconciliation consistency.
+
+## Current Runtime API
+
+Important endpoints now include:
+
+### Runtime
+
+```text
+/api/runtime
+/api/runtime/audit
+/api/runtime/operations
+```
+
+### Engine
+
+```text
+/api/runtime/engine
+/api/runtime/engine/cycle
+/api/runtime/engine/recover
+```
+
+### Supervisor
+
+```text
+/api/runtime/supervisor
+/api/runtime/supervisor/start
+/api/runtime/supervisor/stop
+```
 
 ## Dashboard Direction
 
-The dashboard should stay simple.
+The dashboard is intentionally simple.
 
-Desired controls:
+Desired operational visibility:
 
-- Start
-- Stop
-- Config selection
-- Strategy selection
+- runtime state;
+- watchdog health;
+- pause reasons;
+- execution status;
+- reconciliation state;
+- runtime operations;
+- equity curve;
+- recent failures.
 
-Desired visibility:
+Avoid turning the project into a cluttered exchange terminal.
 
-- runtime state
-- pause reason
-- heartbeat
-- current position
-- last execution
-- PnL
-- drawdown
-- cooldown status
-- recent audit events
-- failsafe state
+## Current Known Remaining Gaps
 
-Avoid turning the dashboard into a cluttered exchange terminal.
+Still unfinished:
 
-## Current Strategy Direction
+1. Production deployment infrastructure
+2. Structured monitoring/alerting
+3. Full frontend test coverage
+4. Full supervisor API test coverage
+5. Long-duration soak testing
+6. Production authentication/authorization
+7. Production secrets management
+8. Live execution hardening
+9. Restart-safe open-order synchronization
+10. Real production operational validation
 
-The current strongest strategy is still `BreakoutStrategy`.
+## Important Live Trading Constraint
 
-Reason:
+Do NOT enable live trading by:
 
-- trend filtering;
-- volatility filtering;
-- reduced choppy overtrading.
-
-However:
-
-- runtime reliability matters more than strategy complexity right now.
-- execution safety is higher priority than alpha.
-
-## Current Known Weaknesses
-
-1. No real candle-driven runtime yet.
-2. No exchange reconciliation.
-3. No open-order synchronization.
-4. No persistent runtime restore yet.
-5. No API latency monitor.
-6. No circuit breaker.
-7. No true Binance testnet execution loop.
-8. No durable open-position state.
-9. No recovery logic after restart.
-10. No historical Binance ingestion yet.
-
-## Important Development Constraint
-
-Do not implement live trading by simply:
-
-- removing the API guard;
+- removing the live execution guard;
 - wiring market orders directly into Start;
-- trusting in-memory runtime state;
-- ignoring exchange reconciliation.
+- trusting only in-memory runtime state;
+- skipping reconciliation;
+- bypassing runtime safety checks.
 
-The project must become operationally reliable before it becomes live.
+Operational reliability matters more than enabling live mode quickly.
 
 ## Local Commands
 
@@ -279,8 +287,8 @@ The project must become operationally reliable before it becomes live.
 
 Tradebot should behave more like:
 
-- a cautious autonomous operator;
+- a cautious autonomous runtime operator;
 
 and less like:
 
-- an always-on gambling engine.
+- an aggressive always-on gambling engine.

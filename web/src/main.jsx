@@ -117,6 +117,9 @@ function App() {
   const config = data?.config ?? {};
   const runtime = data?.runtime ?? {};
   const options = data?.options ?? {};
+  const supervisor = data?.supervisor ?? {};
+  const operations = data?.operations ?? [];
+  const engine = data?.engine ?? {};
   const profiles = options.profiles ?? {};
   const strategies = options.strategies ?? {};
   const equity = useMemo(
@@ -139,6 +142,9 @@ function App() {
         <div className="status-strip">
           <span className={runtime.running ? 'pill good' : 'pill'}>
             {runtime.running ? 'Running' : 'Stopped'}
+          </span>
+          <span className={supervisor.active ? 'pill good' : 'pill'}>
+            {supervisor.active ? 'Supervisor Active' : 'Supervisor Idle'}
           </span>
           <span className="pill">{config.mode ?? 'unknown'}</span>
           <button className="icon-button" onClick={load} title="Refresh dashboard">
@@ -193,13 +199,13 @@ function App() {
           <CirclePause size={17} />
           Stop
         </button>
-        <button onClick={() => action('report', '/api/simulation/report')} disabled={Boolean(busy) || runtime.running}>
-          <BarChart3 size={17} />
-          Run Report
+        <button onClick={() => action('supervisor', '/api/runtime/supervisor/start')} disabled={Boolean(busy)}>
+          <ShieldAlert size={17} />
+          Start Supervisor
         </button>
-        <button onClick={() => action('batch', '/api/simulation/batch')} disabled={Boolean(busy) || runtime.running}>
-          <Activity size={17} />
-          Run Batch
+        <button onClick={() => action('pause', '/api/control/pause')} disabled={Boolean(busy)}>
+          <CirclePause size={17} />
+          Pause
         </button>
         {busy && <span className="busy">Running {busy}...</span>}
       </section>
@@ -208,8 +214,44 @@ function App() {
         <Metric icon={<TrendingUp />} label="Return" value={percent(summary.return_percent)} tone={numberValue(summary.return_percent) >= 0 ? 'good' : 'bad'} />
         <Metric icon={<Activity />} label="Loop Runs" value={runtime.loop_count ?? 0} tone={runtime.running ? 'good' : 'neutral'} />
         <Metric icon={<BarChart3 />} label="Trades" value={summary.total_trades ?? 0} />
-        <Metric icon={<ShieldAlert />} label="Max Drawdown" value={percent(summary.max_drawdown_percent)} tone={numberValue(summary.max_drawdown_percent) < -3 ? 'bad' : 'neutral'} />
+        <Metric icon={<ShieldAlert />} label="Watchdog Errors" value={supervisor.snapshot?.watchdog?.consecutive_errors ?? 0} tone={(supervisor.snapshot?.watchdog?.consecutive_errors ?? 0) > 0 ? 'bad' : 'good'} />
         <Metric icon={<TrendingDown />} label="Batch Worst Run" value={percent(aggregate.overall?.worst_return_percent)} tone="bad" />
+      </section>
+
+      <section className="layout">
+        <Panel title="Supervisor Status">
+          <dl className="definition-list">
+            <dt>Active</dt>
+            <dd>{String(supervisor.active ?? false)}</dd>
+            <dt>Task Running</dt>
+            <dd>{String(supervisor.task_running ?? false)}</dd>
+            <dt>State</dt>
+            <dd>{supervisor.snapshot?.state ?? '-'}</dd>
+            <dt>Heartbeat</dt>
+            <dd>{supervisor.snapshot?.watchdog?.heartbeat_at ?? '-'}</dd>
+            <dt>Last Cycle</dt>
+            <dd>{supervisor.snapshot?.watchdog?.last_cycle_at ?? '-'}</dd>
+            <dt>Last Error</dt>
+            <dd>{supervisor.snapshot?.watchdog?.last_error ?? '-'}</dd>
+          </dl>
+        </Panel>
+
+        <Panel title="Engine Cycle">
+          <dl className="definition-list">
+            <dt>Mode</dt>
+            <dd>{engine?.mode ?? '-'}</dd>
+            <dt>Intent</dt>
+            <dd>{engine?.intent?.intent ?? '-'}</dd>
+            <dt>Reason</dt>
+            <dd>{engine?.intent?.reason ?? '-'}</dd>
+            <dt>Executed</dt>
+            <dd>{String(engine?.execution?.executed ?? false)}</dd>
+            <dt>Safety</dt>
+            <dd>{engine?.safety?.reason ?? '-'}</dd>
+            <dt>Reconciliation</dt>
+            <dd>{String(engine?.reconciliation?.healthy ?? false)}</dd>
+          </dl>
+        </Panel>
       </section>
 
       <section className="layout">
@@ -227,40 +269,8 @@ function App() {
           </div>
         </Panel>
 
-        <Panel title="Config">
-          <dl className="definition-list">
-            <dt>Strategy</dt>
-            <dd>{strategies[runtime.selected_strategy] ?? config.strategy}</dd>
-            <dt>Profile</dt>
-            <dd>{profiles[runtime.selected_profile]?.label ?? runtime.selected_profile}</dd>
-            <dt>Timeframe</dt>
-            <dd>{config.timeframe}</dd>
-            <dt>Symbols</dt>
-            <dd>{(config.symbols ?? []).join(', ')}</dd>
-            <dt>Last Action</dt>
-            <dd>{runtime.last_action}</dd>
-            <dt>Loop Runs</dt>
-            <dd>{runtime.loop_count ?? 0}</dd>
-            <dt>Last Run</dt>
-            <dd>{runtime.last_run_at ? String(runtime.last_run_at).slice(11, 19) : '-'}</dd>
-            <dt>Action Time</dt>
-            <dd>{runtime.last_action_at ? String(runtime.last_action_at).slice(11, 19) : '-'}</dd>
-          </dl>
-        </Panel>
-      </section>
-
-      <section className="layout">
-        <Panel title="Batch By Regime">
-          <RegimeTable regimes={aggregate.by_regime ?? {}} />
-        </Panel>
-        <Panel title="Latest Trades">
-          <TradesTable trades={reports.trades ?? []} />
-        </Panel>
-      </section>
-
-      <section>
-        <Panel title="Latest Signals">
-          <SignalsTable signals={reports.signals ?? []} />
+        <Panel title="Runtime Operations">
+          <OperationsTable rows={operations} />
         </Panel>
       </section>
     </main>
@@ -288,83 +298,24 @@ function Panel({ title, children }) {
   );
 }
 
-function RegimeTable({ regimes }) {
-  const rows = Object.entries(regimes);
-  return (
-    <div className="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Regime</th>
-            <th>Mean</th>
-            <th>Worst</th>
-            <th>Positive</th>
-            <th>Trades</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map(([name, row]) => (
-            <tr key={name}>
-              <td>{name}</td>
-              <td className={numberValue(row.mean_return_percent) >= 0 ? 'text-good' : 'text-bad'}>{percent(row.mean_return_percent)}</td>
-              <td>{percent(row.worst_return_percent)}</td>
-              <td>{row.positive_runs}/{row.runs}</td>
-              <td>{numberValue(row.mean_trades).toFixed(1)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function TradesTable({ trades }) {
-  const rows = trades.slice(-12).reverse();
+function OperationsTable({ rows }) {
   return (
     <div className="table-wrap">
       <table>
         <thead>
           <tr>
             <th>Symbol</th>
-            <th>Side</th>
-            <th>Exit</th>
-            <th>PnL</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, index) => (
-            <tr key={`${row.entry_time}-${index}`}>
-              <td>{row.symbol}</td>
-              <td>{row.side}</td>
-              <td>{row.exit_reason}</td>
-              <td className={numberValue(row.net_pnl) >= 0 ? 'text-good' : 'text-bad'}>{money(row.net_pnl)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function SignalsTable({ signals }) {
-  const rows = signals.slice(-16).reverse();
-  return (
-    <div className="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Time</th>
-            <th>Symbol</th>
-            <th>Side</th>
+            <th>Action</th>
+            <th>Status</th>
             <th>Reason</th>
           </tr>
         </thead>
         <tbody>
-          {rows.map((row, index) => (
-            <tr key={`${row.time}-${row.symbol}-${index}`}>
-              <td>{String(row.time).slice(5, 16)}</td>
+          {rows.slice(0, 12).map((row, index) => (
+            <tr key={`${row.id}-${index}`}>
               <td>{row.symbol}</td>
-              <td>{row.side}</td>
+              <td>{row.action}</td>
+              <td>{row.status}</td>
               <td>{row.reason}</td>
             </tr>
           ))}
