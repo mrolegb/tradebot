@@ -62,3 +62,34 @@ def test_batch_only_runs_for_simulation_profile() -> None:
 
     assert response.status_code == 409
 
+
+def test_start_stop_simulation_happy_path(monkeypatch) -> None:
+    reset_runtime()
+    client = TestClient(app)
+
+    class FakeTask:
+        def __init__(self) -> None:
+            self.cancelled = False
+
+        def done(self) -> bool:
+            return False
+
+        def cancel(self) -> None:
+            self.cancelled = True
+
+    fake_task = FakeTask()
+
+    def fake_create_task(coro):
+        coro.close()
+        return fake_task
+
+    monkeypatch.setattr(api_module.asyncio, "create_task", fake_create_task)
+
+    start_response = client.post("/api/control/start")
+    stop_response = client.post("/api/control/stop")
+
+    assert start_response.status_code == 200
+    assert start_response.json()["running"] is True
+    assert stop_response.status_code == 200
+    assert stop_response.json()["running"] is False
+    assert fake_task.cancelled is True
