@@ -8,7 +8,9 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from app.exchange.factory import build_market_data_client
 from app.reporting.readers import latest_dashboard_data, read_csv, read_json
+from app.runtime.engine import CandleRuntimeEngine, ExecutionMode
 from app.runtime.profiles import CONFIG_PROFILES, STRATEGIES, load_selected_settings, selected_profile
 from app.runtime.state import runtime_state
 from app.simulation.batch import run_batch
@@ -24,10 +26,17 @@ app.add_middleware(
 )
 
 active_task: asyncio.Task | None = None
+last_engine_cycle: dict | None = None
 
 
 class SelectionRequest(BaseModel):
     value: str
+
+
+class RuntimeCycleRequest(BaseModel):
+    symbol: str | None = None
+    mode: str = "dry_run"
+    lookback: int = 200
 
 
 @app.get("/health")
@@ -63,6 +72,7 @@ def dashboard() -> dict:
         "runtime": runtime_snapshot,
         "runtime_health": runtime_snapshot["health"],
         "runtime_status": runtime_snapshot["runtime_status"],
+        "engine": last_engine_cycle,
         "reports": latest_dashboard_data(),
         "mode": settings.app.mode,
         "options": options(),
@@ -77,6 +87,11 @@ def runtime() -> dict:
 @app.get("/api/runtime/audit")
 def runtime_audit(limit: int = 100) -> list[dict]:
     return runtime_state.audit_events(limit=limit)
+
+
+@app.get("/api/runtime/engine")
+def runtime_engine_status() -> dict:
+    return {"last_cycle": last_engine_cycle}
 
 
 @app.get("/api/options")
@@ -162,6 +177,59 @@ def pause() -> dict:
         active_task.cancel()
     active_task = None
     return runtime_state.pause("manual_pause")
+
+
+@app.post("/api/runtime/engine/cycle")
+async def run_engine_cycle(request: RuntimeCycleRequest) -> dict:
+    global last_engine_cycle
+    if request.mode not in {ExecutionMode.DRY_RUN, ExecutionMode.TESTNET}:
+        raise HTTPException(status_code=400, detail=f"Unknown engine mode: {request.mode}")
+    if request.mode == ExecutionMode.TESTNET and runtime_state.selected_profile != "binance_testnet":
+        raise HTTPException(status_code=409, detail="Testnet engine mode requires the Binance Testnet profile.")
+    if runtime_state.selected_profile == "binance_live":
+        raise HTTPException(status_code=403, detail="Live engine execution is blocked.")
+
+    settings = load_selected_settings()
+    symbol = request.symbol or settings.trading.symbols[0]
+    client = build_market_data_client(settings)
+    engine = CandleRuntimeEngine(
+        client,
+        mode=ExecutionMode(request.mode),
+        allow_shorts=False,
+        max_open_positions=settings.risk.max_open_positions,
+    )
+    try:
+        last_engine_cycle = await engine.runtime_cycle(
+            symbol=symbol,
+            interval=settings.trading.timeframe,
+            lookback=request.lookback,
+        )
+        return {"status": "completed", "cycle": last_engine_cycle}
+    finally:
+        await client.close()
+
+
+@app.post("/api/runtime/engine/recover")
+async def recover_engine(request: RuntimeCycleRequest) -> dict:
+    global last_engine_cycle
+    if runtime_state.selected_profile == "binance_live":
+        raise HTTPException(status_code=403, detail="Live recovery is blocked.")
+
+    settings = load_selected_settings()
+    symbol = request.symbol or settings.trading.symbols[0]
+    client = build_market_data_client(settings)
+    engine = CandleRuntimeEngine(
+        client,
+        mode=ExecutionMode.DRY_RUN,
+        allow_shorts=False,
+        max_open_positions=settings.risk.max_open_positions,
+    )
+    try:
+        reconciliation = await engine.recover(symbol=symbol)
+        last_engine_cycle = {"status": "recovered", "symbol": symbol, "reconciliation": reconciliation}
+        return last_engine_cycle
+    finally:
+        await client.close()
 
 
 @app.post("/api/simulation/report")
