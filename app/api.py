@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import replace
+from time import perf_counter
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -31,7 +32,12 @@ class SelectionRequest(BaseModel):
 
 @app.get("/health")
 def health() -> dict:
-    return {"status": "ok"}
+    snapshot = runtime_state.snapshot()
+    return {
+        "status": "ok",
+        "runtime_status": snapshot["runtime_status"],
+        "runtime_health": snapshot["health"],
+    }
 
 
 @app.get("/config")
@@ -51,13 +57,26 @@ def config() -> dict:
 @app.get("/api/dashboard")
 def dashboard() -> dict:
     settings = load_selected_settings()
+    runtime_snapshot = runtime_state.snapshot()
     return {
         "config": config(),
-        "runtime": runtime_state.snapshot(),
+        "runtime": runtime_snapshot,
+        "runtime_health": runtime_snapshot["health"],
+        "runtime_status": runtime_snapshot["runtime_status"],
         "reports": latest_dashboard_data(),
         "mode": settings.app.mode,
         "options": options(),
     }
+
+
+@app.get("/api/runtime")
+def runtime() -> dict:
+    return runtime_state.snapshot()
+
+
+@app.get("/api/runtime/audit")
+def runtime_audit(limit: int = 100) -> list[dict]:
+    return runtime_state.audit_events(limit=limit)
 
 
 @app.get("/api/options")
@@ -136,10 +155,26 @@ def stop() -> dict:
     return runtime_state.stop()
 
 
+@app.post("/api/control/pause")
+def pause() -> dict:
+    global active_task
+    if active_task and not active_task.done():
+        active_task.cancel()
+    active_task = None
+    return runtime_state.pause("manual_pause")
+
+
 @app.post("/api/simulation/report")
 async def run_report() -> dict:
     settings = load_selected_settings()
-    summary_data = await run_simulation(settings)
+    started_at = perf_counter()
+    try:
+        summary_data = await run_simulation(settings)
+    except Exception as exc:
+        runtime_state.record_runtime_failure(f"report_failed:{exc.__class__.__name__}")
+        raise
+    runtime_state.record_market_data(latency_ms=(perf_counter() - started_at) * 1000)
+    runtime_state.record_runtime_success()
     return {"status": "completed", "summary": summary_data}
 
 
@@ -147,13 +182,21 @@ async def run_report() -> dict:
 async def run_batch_report() -> dict:
     if runtime_state.selected_profile != "simulation":
         raise HTTPException(status_code=409, detail="Batch simulation is available only for the simulation profile.")
-    aggregate = await asyncio.create_task(run_batch(selected_profile()["config_path"], base_settings=load_selected_settings()))
+    started_at = perf_counter()
+    try:
+        aggregate = await asyncio.create_task(run_batch(selected_profile()["config_path"], base_settings=load_selected_settings()))
+    except Exception as exc:
+        runtime_state.record_runtime_failure(f"batch_failed:{exc.__class__.__name__}")
+        raise
+    runtime_state.record_market_data(latency_ms=(perf_counter() - started_at) * 1000)
+    runtime_state.record_runtime_success()
     return {"status": "completed", "aggregate": aggregate}
 
 
 async def _run_simulation_loop(settings) -> None:
     try:
         while runtime_state.running:
+            runtime_state.heartbeat()
             run_settings = replace(
                 settings,
                 simulation=replace(
@@ -161,10 +204,19 @@ async def _run_simulation_loop(settings) -> None:
                     seed=settings.simulation.seed + runtime_state.loop_count + 1,
                 ),
             )
-            await run_simulation(run_settings)
+            started_at = perf_counter()
+            try:
+                await run_simulation(run_settings)
+            except Exception as exc:
+                runtime_state.record_runtime_failure(f"simulation_loop_failed:{exc.__class__.__name__}")
+                await asyncio.sleep(5)
+                continue
+            runtime_state.record_market_data(latency_ms=(perf_counter() - started_at) * 1000)
+            runtime_state.record_runtime_success()
             runtime_state.register_loop_run()
             await asyncio.sleep(5)
     except asyncio.CancelledError:
         raise
     finally:
-        runtime_state.stop()
+        if runtime_state.running:
+            runtime_state.stop()
