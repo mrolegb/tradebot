@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
+from app.runtime.status import RuntimeStatus, RuntimeStatusModel
+
 
 @dataclass
 class RuntimeState:
@@ -14,10 +16,12 @@ class RuntimeState:
     last_action: str = "initialized"
     last_action_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     simulated_open_positions: list[dict] = field(default_factory=list)
+    runtime_status: RuntimeStatusModel = field(default_factory=RuntimeStatusModel)
 
     def select_profile(self, profile: str) -> dict:
         self.selected_profile = profile
         self.running = False
+        self.runtime_status.set_status(RuntimeStatus.IDLE, f"profile_selected:{profile}")
         return self._record(f"profile_selected:{profile}")
 
     def select_strategy(self, strategy: str) -> dict:
@@ -26,11 +30,23 @@ class RuntimeState:
 
     def start(self) -> dict:
         self.running = True
+        self.runtime_status.set_status(RuntimeStatus.RUNNING, "runtime_started")
         return self._record("started")
 
     def stop(self) -> dict:
         self.running = False
+        self.runtime_status.set_status(RuntimeStatus.STOPPED, "runtime_stopped")
         return self._record("stopped")
+
+    def pause(self, reason: str) -> dict:
+        self.running = False
+        self.runtime_status.set_status(RuntimeStatus.PAUSED, reason)
+        return self._record(f"paused:{reason}")
+
+    def error(self, reason: str) -> dict:
+        self.running = False
+        self.runtime_status.set_status(RuntimeStatus.ERROR, reason)
+        return self._record(f"error:{reason}")
 
     def register_loop_run(self) -> dict:
         self.loop_count += 1
@@ -47,6 +63,11 @@ class RuntimeState:
             "last_action": self.last_action,
             "last_action_at": self.last_action_at,
             "simulated_open_positions": self.simulated_open_positions,
+            "runtime_status": {
+                "status": self.runtime_status.status,
+                "reason": self.runtime_status.reason,
+                "updated_at": self.runtime_status.updated_at,
+            },
         }
 
     def _record(self, action: str) -> dict:
