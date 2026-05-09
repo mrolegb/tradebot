@@ -11,19 +11,22 @@ CONFIG_PROFILES = {
         "label": "Simulation",
         "config_path": "configs/local_test.yaml",
         "can_start": True,
+        "runtime_mode": "simulation",
         "description": "Local simulator with generated market data.",
     },
     "binance_testnet": {
         "label": "Binance Testnet",
         "config_path": "configs/binance_testnet.yaml",
-        "can_start": False,
-        "description": "Binance Futures testnet profile. Trading loop is not enabled yet.",
+        "can_start": True,
+        "runtime_mode": "testnet",
+        "description": "Binance Futures testnet runtime environment.",
     },
     "binance_live": {
         "label": "Binance Live",
         "config_path": "configs/binance_live.yaml",
         "can_start": False,
-        "description": "Live Binance profile. Start is blocked until explicit live safeguards are implemented.",
+        "runtime_mode": "live",
+        "description": "Live Binance profile remains explicitly blocked until production hardening is complete.",
     },
 }
 
@@ -41,4 +44,3 @@ def selected_profile() -> dict:
 def load_selected_settings() -> Settings:
     settings = load_settings(selected_profile()["config_path"])
     return replace(settings, strategy=replace(settings.strategy, name=runtime_state.selected_strategy))
-
