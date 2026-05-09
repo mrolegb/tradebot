@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from app.exchange.factory import build_market_data_client
 from app.reporting.readers import latest_dashboard_data, read_csv, read_json
 from app.runtime.engine import CandleRuntimeEngine, ExecutionMode
+from app.runtime.operations import ExposurePolicy, RuntimeStore, RuntimeSupervisor
 from app.runtime.profiles import CONFIG_PROFILES, STRATEGIES, load_selected_settings, selected_profile
 from app.runtime.state import runtime_state
 from app.simulation.batch import run_batch
@@ -26,6 +27,8 @@ app.add_middleware(
 )
 
 active_task: asyncio.Task | None = None
+supervisor_task: asyncio.Task | None = None
+active_supervisor: RuntimeSupervisor | None = None
 last_engine_cycle: dict | None = None
 
 
@@ -39,6 +42,13 @@ class RuntimeCycleRequest(BaseModel):
     lookback: int = 200
 
 
+class SupervisorStartRequest(BaseModel):
+    symbol: str | None = None
+    mode: str = "dry_run"
+    lookback: int = 200
+    interval_seconds: int = 60
+
+
 @app.get("/health")
 def health() -> dict:
     snapshot = runtime_state.snapshot()
@@ -46,6 +56,7 @@ def health() -> dict:
         "status": "ok",
         "runtime_status": snapshot["runtime_status"],
         "runtime_health": snapshot["health"],
+        "supervisor": _supervisor_snapshot(),
     }
 
 
@@ -73,6 +84,8 @@ def dashboard() -> dict:
         "runtime_health": runtime_snapshot["health"],
         "runtime_status": runtime_snapshot["runtime_status"],
         "engine": last_engine_cycle,
+        "supervisor": _supervisor_snapshot(),
+        "operations": RuntimeStore().pending_records(limit=25),
         "reports": latest_dashboard_data(),
         "mode": settings.app.mode,
         "options": options(),
@@ -91,7 +104,18 @@ def runtime_audit(limit: int = 100) -> list[dict]:
 
 @app.get("/api/runtime/engine")
 def runtime_engine_status() -> dict:
-    return {"last_cycle": last_engine_cycle}
+    return {"last_cycle": last_engine_cycle, "supervisor": _supervisor_snapshot()}
+
+
+@app.get("/api/runtime/operations")
+def runtime_operations(limit: int = 100) -> dict:
+    store = RuntimeStore()
+    return {"pending_records": store.pending_records(limit=limit), "supervisor": _supervisor_snapshot()}
+
+
+@app.get("/api/runtime/supervisor")
+def runtime_supervisor_status() -> dict:
+    return _supervisor_snapshot()
 
 
 @app.get("/api/options")
@@ -163,41 +187,36 @@ async def start() -> dict:
 
 @app.post("/api/control/stop")
 def stop() -> dict:
-    global active_task
+    global active_task, supervisor_task, active_supervisor
     if active_task and not active_task.done():
         active_task.cancel()
+    if supervisor_task and not supervisor_task.done():
+        supervisor_task.cancel()
+    if active_supervisor:
+        active_supervisor.stop()
     active_task = None
+    supervisor_task = None
     return runtime_state.stop()
 
 
 @app.post("/api/control/pause")
 def pause() -> dict:
-    global active_task
+    global active_task, supervisor_task, active_supervisor
     if active_task and not active_task.done():
         active_task.cancel()
+    if supervisor_task and not supervisor_task.done():
+        supervisor_task.cancel()
+    if active_supervisor:
+        active_supervisor.stop()
     active_task = None
+    supervisor_task = None
     return runtime_state.pause("manual_pause")
 
 
 @app.post("/api/runtime/engine/cycle")
 async def run_engine_cycle(request: RuntimeCycleRequest) -> dict:
     global last_engine_cycle
-    if request.mode not in {ExecutionMode.DRY_RUN, ExecutionMode.TESTNET}:
-        raise HTTPException(status_code=400, detail=f"Unknown engine mode: {request.mode}")
-    if request.mode == ExecutionMode.TESTNET and runtime_state.selected_profile != "binance_testnet":
-        raise HTTPException(status_code=409, detail="Testnet engine mode requires the Binance Testnet profile.")
-    if runtime_state.selected_profile == "binance_live":
-        raise HTTPException(status_code=403, detail="Live engine execution is blocked.")
-
-    settings = load_selected_settings()
-    symbol = request.symbol or settings.trading.symbols[0]
-    client = build_market_data_client(settings)
-    engine = CandleRuntimeEngine(
-        client,
-        mode=ExecutionMode(request.mode),
-        allow_shorts=False,
-        max_open_positions=settings.risk.max_open_positions,
-    )
+    engine, client, symbol, settings = _build_engine(request.symbol, request.mode)
     try:
         last_engine_cycle = await engine.runtime_cycle(
             symbol=symbol,
@@ -212,24 +231,47 @@ async def run_engine_cycle(request: RuntimeCycleRequest) -> dict:
 @app.post("/api/runtime/engine/recover")
 async def recover_engine(request: RuntimeCycleRequest) -> dict:
     global last_engine_cycle
-    if runtime_state.selected_profile == "binance_live":
-        raise HTTPException(status_code=403, detail="Live recovery is blocked.")
-
-    settings = load_selected_settings()
-    symbol = request.symbol or settings.trading.symbols[0]
-    client = build_market_data_client(settings)
-    engine = CandleRuntimeEngine(
-        client,
-        mode=ExecutionMode.DRY_RUN,
-        allow_shorts=False,
-        max_open_positions=settings.risk.max_open_positions,
-    )
+    engine, client, symbol, _settings = _build_engine(request.symbol, "dry_run")
     try:
         reconciliation = await engine.recover(symbol=symbol)
         last_engine_cycle = {"status": "recovered", "symbol": symbol, "reconciliation": reconciliation}
         return last_engine_cycle
     finally:
         await client.close()
+
+
+@app.post("/api/runtime/supervisor/start")
+async def start_supervisor(request: SupervisorStartRequest) -> dict:
+    global supervisor_task, active_supervisor
+    if supervisor_task and not supervisor_task.done():
+        return _supervisor_snapshot()
+    engine, client, symbol, settings = _build_engine(request.symbol, request.mode)
+    active_supervisor = RuntimeSupervisor(
+        engine,
+        policy=ExposurePolicy(
+            allowed_symbols=set(settings.trading.symbols),
+            max_open_positions=settings.risk.max_open_positions,
+            allow_shorts=False,
+        ),
+        cycle_interval_seconds=request.interval_seconds,
+    )
+    runtime_state.start()
+    supervisor_task = asyncio.create_task(
+        _run_supervisor(active_supervisor, client, symbol=symbol, interval=settings.trading.timeframe, lookback=request.lookback)
+    )
+    return _supervisor_snapshot()
+
+
+@app.post("/api/runtime/supervisor/stop")
+def stop_supervisor() -> dict:
+    global supervisor_task, active_supervisor
+    if active_supervisor:
+        active_supervisor.stop()
+    if supervisor_task and not supervisor_task.done():
+        supervisor_task.cancel()
+    supervisor_task = None
+    runtime_state.stop()
+    return _supervisor_snapshot()
 
 
 @app.post("/api/simulation/report")
@@ -288,3 +330,46 @@ async def _run_simulation_loop(settings) -> None:
     finally:
         if runtime_state.running:
             runtime_state.stop()
+
+
+async def _run_supervisor(supervisor: RuntimeSupervisor, client, *, symbol: str, interval: str, lookback: int) -> None:
+    global last_engine_cycle
+    try:
+        await supervisor.run_forever(symbol=symbol, interval=interval, lookback=lookback)
+        last_engine_cycle = supervisor.last_cycle
+    except asyncio.CancelledError:
+        raise
+    finally:
+        await client.close()
+
+
+def _build_engine(symbol: str | None, mode: str):
+    if mode not in {ExecutionMode.DRY_RUN, ExecutionMode.TESTNET}:
+        raise HTTPException(status_code=400, detail=f"Unknown engine mode: {mode}")
+    if mode == ExecutionMode.TESTNET and runtime_state.selected_profile != "binance_testnet":
+        raise HTTPException(status_code=409, detail="Testnet engine mode requires the Binance Testnet profile.")
+    if runtime_state.selected_profile == "binance_live":
+        raise HTTPException(status_code=403, detail="Live engine execution is blocked.")
+
+    settings = load_selected_settings()
+    selected_symbol = symbol or settings.trading.symbols[0]
+    if selected_symbol not in settings.trading.symbols:
+        raise HTTPException(status_code=400, detail=f"Symbol is not configured: {selected_symbol}")
+    client = build_market_data_client(settings)
+    engine = CandleRuntimeEngine(
+        client,
+        mode=ExecutionMode(mode),
+        allow_shorts=False,
+        max_open_positions=settings.risk.max_open_positions,
+    )
+    return engine, client, selected_symbol, settings
+
+
+def _supervisor_snapshot() -> dict:
+    if active_supervisor is None:
+        return {"active": False, "task_running": False, "snapshot": None}
+    return {
+        "active": True,
+        "task_running": supervisor_task is not None and not supervisor_task.done(),
+        "snapshot": active_supervisor.snapshot(),
+    }
