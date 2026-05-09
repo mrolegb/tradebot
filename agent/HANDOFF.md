@@ -1,56 +1,268 @@
 # Tradebot Agent Handoff
 
-## Project State
+## Current Direction
 
-Repository: `D:\projects\tradebot`
+The project direction changed from a pure simulation MVP into a conservative autonomous trading runtime project.
 
-Python target: `3.13.12`
+The intended product is:
 
-Node/npm:
-- Node `v24.13.0`
-- npm `11.6.2`
+- low-frequency;
+- low-leverage;
+- minimal user interaction;
+- safety-first;
+- capable of running unattended for long periods;
+- capable of pausing itself safely;
+- able to recover state after restart;
+- transparent about decisions and failures.
 
-The project is a Binance Futures trading bot MVP with:
-- local simulator
-- strategy layer
-- risk/cooldown controls
-- report generation
-- batch robustness simulations
-- FastAPI backend
-- React/Vite dashboard
+The user does NOT want:
+- high-frequency trading;
+- aggressive leverage;
+- martingale behavior;
+- overcomplicated UI;
+- constant manual babysitting.
 
-Git repository is initialized and connected to:
+The intended workflow is:
+
+1. User deposits a controlled amount of capital.
+2. User starts the bot.
+3. Bot trades conservatively.
+4. Bot pauses itself if conditions become unsafe.
+5. User reviews results later.
+
+## Important Safety Philosophy
+
+Tradebot should prefer:
+
+- pausing over forcing trades;
+- reducing risk over maximizing activity;
+- holding no position over uncertain execution;
+- preserving state over resetting blindly.
+
+The project should not evolve into an unsafe “always trade” system.
+
+## Current State
+
+Repository:
 
 ```text
 git@github.com:mrolegb/tradebot.git
 ```
 
-The initial MVP was pushed to `main`.
+Python target:
 
-## Current Running Services
-
-Backend:
-
-```powershell
-http://127.0.0.1:8000
+```text
+3.13.12
 ```
 
 Frontend:
 
-```powershell
-http://127.0.0.1:5173
+```text
+Node v24.13.0
+npm 11.6.2
 ```
 
-If services need restart:
+Current architecture includes:
 
-```powershell
-.\task.ps1 api
-.\task.ps1 web-dev
+- FastAPI backend
+- React/Vite dashboard
+- local simulator
+- report generator
+- batch robustness testing
+- strategy layer
+- risk manager
+- cooldown manager
+- runtime state
+- SQLite runtime persistence foundation
+- CI workflow
+
+## Important Runtime Reality
+
+Current `Start` behavior still runs repeated report-style simulations.
+
+This is NOT yet the intended final runtime.
+
+The next architectural goal is a true candle-driven autonomous runtime engine.
+
+## Existing Runtime Profiles
+
+Defined in:
+
+```text
+app/runtime/profiles.py
 ```
 
-The user usually works from PowerShell on Windows.
+Profiles:
 
-## Common Commands
+- `simulation`
+- `binance_testnet`
+- `binance_live`
+
+Current behavior:
+
+- `simulation` can run.
+- `binance_testnet` returns `501`.
+- `binance_live` returns `403`.
+
+These guards are intentional.
+
+Do not remove them casually.
+
+## Current Safe Development Sequence
+
+The recommended implementation order is:
+
+1. Runtime persistence
+2. Runtime state machine
+3. Runtime audit logging
+4. Circuit breaker / failsafe layer
+5. Binance testnet execution adapter
+6. Candle-driven runtime engine
+7. Recovery/reconciliation logic
+8. Dashboard runtime visibility
+9. Long-running testnet soak testing
+10. Only then consider live mode
+
+## Current Active Branch
+
+Current autonomous runtime work branch:
+
+```text
+agent/autonomous-runtime-foundation
+```
+
+This branch is intended to become the main runtime/failsafe/testnet foundation PR.
+
+## Runtime Persistence
+
+`app/runtime/storage.py` now exists.
+
+Purpose:
+
+- persist runtime snapshots;
+- persist audit events;
+- provide future recovery foundation.
+
+This is intentionally infrastructure-first.
+
+## Intended Runtime State Machine
+
+Target lifecycle states:
+
+```text
+IDLE
+STARTING
+RUNNING
+PAUSED
+STOPPING
+STOPPED
+ERROR
+```
+
+The future runtime engine should use explicit transitions instead of only a boolean `running` flag.
+
+## Intended Failsafe Behavior
+
+The runtime should eventually pause automatically when:
+
+- Binance latency spikes;
+- stale market data is detected;
+- repeated API failures occur;
+- reconciliation fails;
+- max daily loss triggers;
+- exchange state becomes uncertain.
+
+Desired behavior:
+
+- stop opening new positions;
+- preserve runtime state;
+- wait for cooldown/backoff;
+- retry safely;
+- expose pause reason in dashboard/API.
+
+## Intended Runtime Loop
+
+The future runtime should:
+
+1. Fetch fresh candles.
+2. Validate market data freshness.
+3. Evaluate strategy.
+4. Run risk checks.
+5. Build execution intent.
+6. Execute on testnet.
+7. Reconcile positions/orders.
+8. Persist runtime snapshot.
+9. Emit audit events.
+10. Sleep until next cycle.
+
+This should be incremental candle processing, not repeated full-report simulations.
+
+## Dashboard Direction
+
+The dashboard should stay simple.
+
+Desired controls:
+
+- Start
+- Stop
+- Config selection
+- Strategy selection
+
+Desired visibility:
+
+- runtime state
+- pause reason
+- heartbeat
+- current position
+- last execution
+- PnL
+- drawdown
+- cooldown status
+- recent audit events
+- failsafe state
+
+Avoid turning the dashboard into a cluttered exchange terminal.
+
+## Current Strategy Direction
+
+The current strongest strategy is still `BreakoutStrategy`.
+
+Reason:
+
+- trend filtering;
+- volatility filtering;
+- reduced choppy overtrading.
+
+However:
+
+- runtime reliability matters more than strategy complexity right now.
+- execution safety is higher priority than alpha.
+
+## Current Known Weaknesses
+
+1. No real candle-driven runtime yet.
+2. No exchange reconciliation.
+3. No open-order synchronization.
+4. No persistent runtime restore yet.
+5. No API latency monitor.
+6. No circuit breaker.
+7. No true Binance testnet execution loop.
+8. No durable open-position state.
+9. No recovery logic after restart.
+10. No historical Binance ingestion yet.
+
+## Important Development Constraint
+
+Do not implement live trading by simply:
+
+- removing the API guard;
+- wiring market orders directly into Start;
+- trusting in-memory runtime state;
+- ignoring exchange reconciliation.
+
+The project must become operationally reliable before it becomes live.
+
+## Local Commands
 
 ```powershell
 .\task.ps1 setup
@@ -63,320 +275,12 @@ The user usually works from PowerShell on Windows.
 .\task.ps1 web-build
 ```
 
-Tests currently pass:
+## Runtime Philosophy Summary
 
-```powershell
-.\task.ps1 test
-# 35 passed
-```
+Tradebot should behave more like:
 
-Frontend build currently succeeds:
+- a cautious autonomous operator;
 
-```powershell
-.\task.ps1 web-build
-```
+and less like:
 
-CI workflow:
-
-```text
-.github/workflows/ci.yml
-```
-
-It runs on every branch push and pull request:
-- Python 3.13 install
-- `python -m pytest -q`
-- Node 24 install
-- `npm ci`
-- `npm run build`
-
-## Main Structure
-
-```text
-app/
-  api.py
-  config/loader.py
-  exchange/
-    binance_client.py
-    simulator.py
-    factory.py
-  market/
-    candles.py
-    indicators.py
-  risk/
-    risk_manager.py
-    cooldown_manager.py
-  simulation/
-    runner.py
-    batch.py
-    cli.py
-    report.py
-  strategies/
-    breakout.py
-    ema_cross.py
-    rsi_mean_reversion.py
-  runtime/
-    state.py
-    profiles.py
-  reporting/
-    readers.py
-web/
-  package.json
-  vite.config.js
-  src/main.jsx
-  src/styles.css
-configs/
-  local_test.yaml
-  binance_testnet.yaml
-  binance_live.yaml
-tests/
-  test_api_controls.py
-  test_batch_aggregate.py
-  test_binance_client.py
-  test_breakout_filters.py
-  test_config_loader.py
-  test_indicators.py
-  test_order_executor.py
-  test_reporting_readers.py
-  test_runtime_state.py
-  test_storage_database.py
-agent/
-  HANDOFF.md
-```
-
-## Test Coverage
-
-Current Python test suite has 35 tests.
-
-Covered areas:
-- API dashboard/options behavior
-- API profile and strategy validation
-- API Binance testnet/live start guards
-- API start/stop happy path with a mocked background task
-- batch aggregate calculations
-- Binance signed endpoint credentials guard
-- config loader validation
-- cooldown manager
-- risk manager
-- simulator candles and account behavior
-- simulation report file generation
-- strategy factory
-- breakout filters
-- indicators
-- order executor safety behavior
-- reporting readers
-- runtime state
-- SQLite trade storage
-- backtest engine smoke behavior
-
-Known remaining useful tests:
-- true candle-by-candle simulation state once implemented
-- historical data ingestion once added
-- frontend component tests if the dashboard grows
-- testnet trading loop tests once Binance testnet execution exists
-
-## Runtime Profiles
-
-Defined in `app/runtime/profiles.py`.
-
-Profiles:
-- `simulation`
-- `binance_testnet`
-- `binance_live`
-
-Current safety behavior:
-- `simulation` can start.
-- `binance_testnet` can be selected, but `Start` returns `501` because the live/testnet trading loop is not implemented yet.
-- `binance_live` can be selected, but `Start` returns `403`; this is intentional until live safeguards and real exchange execution are implemented.
-
-Do not remove these guards casually.
-
-## Dashboard Behavior
-
-React dashboard is in `web/src/main.jsx`.
-
-Current controls:
-- Config dropdown
-- Strategy dropdown
-- `Start`
-- `Stop`
-- `Run Report`
-- `Run Batch`
-
-Removed by user request:
-- Pause
-- Resume
-- Close All Sim
-
-Dashboard polls `/api/dashboard` every 5 seconds.
-
-Important visual indicators:
-- `Running` / `Stopped`
-- `Loop Runs`
-- `Last Run`
-- latest report summary
-- equity chart
-- latest trades
-- latest signals
-- batch by regime table
-
-## Start / Stop Behavior
-
-Implemented in `app/api.py`.
-
-`POST /api/control/start`:
-- checks selected profile
-- starts an asyncio background task for simulation profile
-- the task loops until stopped
-- each loop runs `run_simulation(settings)`
-- each loop uses a new seed:
-
-```python
-seed = settings.simulation.seed + runtime_state.loop_count + 1
-```
-
-- after each run, `runtime_state.register_loop_run()` increments `loop_count`
-- waits 5 seconds before the next run
-
-`POST /api/control/stop`:
-- cancels the active task
-- sets runtime `running = False`
-
-Current simulation loop is not real-time market replay. It repeatedly runs report-style simulations with different seeds and overwrites `reports/local_test/*`.
-
-## Run Report / Run Batch
-
-`Run Report`:
-- endpoint: `POST /api/simulation/report`
-- runs one simulation using the selected profile/strategy
-- writes:
-
-```text
-reports/local_test/summary.json
-reports/local_test/trades.csv
-reports/local_test/signals.csv
-reports/local_test/equity_curve.csv
-```
-
-`Run Batch`:
-- endpoint: `POST /api/simulation/batch`
-- only allowed for `simulation` profile
-- runs all configured seeds/regimes from `configs/local_test.yaml`
-- writes:
-
-```text
-reports/local_test/batch/aggregate.json
-reports/local_test/batch/runs.csv
-reports/local_test/batch/<regime>/seed_<n>/
-```
-
-## Strategy State
-
-The most developed strategy is `BreakoutStrategy` in `app/strategies/breakout.py`.
-
-Current filters:
-- close-based breakout level
-- breakout buffer
-- EMA fast/slow trend confirmation
-- minimum trend gap
-- rolling volatility min/max filter
-- optional shorts
-
-`rolling_volatility()` is in `app/market/indicators.py`.
-
-The strategy was improved because the original breakout logic overtraded choppy/high-volatility regimes.
-
-## Risk / Simulation Behavior
-
-Simulation runner: `app/simulation/runner.py`.
-
-Includes:
-- spread
-- slippage
-- fees
-- funding cost
-- stop loss
-- take profit
-- cooldown after losing trade
-- max daily loss kill switch
-
-Current max daily loss behavior:
-- uses `risk.max_daily_loss_percent`
-- stops opening new positions when balance falls below allowed daily loss
-
-## Latest Robustness Result
-
-After improvements, batch behavior was approximately:
-
-```text
-Runs:              50
-Positive runs:     20
-Failure rate:      60%
-Mean return:       +2.63%
-Median return:      0.00%
-Worst run:         -4.11%
-Best run:         +13.82%
-Worst drawdown:    -4.11%
-```
-
-Regime behavior:
-
-```text
-uptrend:          profitable
-downtrend:        profitable
-low_volatility:   no trades
-choppy:           controlled loss via kill switch
-high_volatility:  controlled loss via kill switch
-```
-
-Main takeaway:
-- risk is much better controlled than before
-- strategy is still regime-dependent
-- choppy/high-volatility filters need further work
-
-## Reports Are Ignored
-
-Generated reports are under `reports/` and are git-ignored.
-
-`web/node_modules/` and `web/dist/` are also git-ignored.
-
-## Known Limitations
-
-1. Binance testnet/live trading loop is not implemented.
-2. Real order placement is intentionally gated.
-3. `Close All` real exchange control does not exist yet.
-4. UI control state is in-memory only; restarting backend resets it.
-5. Simulation loop overwrites latest report files each cycle.
-6. Simulation is synthetic, not historical Binance data.
-7. Current simulator prices are generated, not downloaded.
-8. Batch runs can take roughly 1-2 minutes depending on machine load.
-
-## Good Next Steps
-
-Recommended next technical steps:
-
-1. Add historical data ingestion from Binance testnet/public klines.
-2. Add symbol universe selection and `symbol_rankings.csv`.
-3. Persist runtime state and open positions in SQLite.
-4. Replace repeated report loop with true candle-by-candle simulation state.
-5. Implement Binance testnet trading loop with dry-run guard.
-6. Add explicit confirmation and env flag before enabling live mode.
-7. Improve dashboard feedback while long tasks run.
-8. Add frontend component tests if dashboard behavior becomes more complex.
-
-## Safety Notes
-
-Do not enable live trading by simply removing the API guard.
-
-Before live/testnet start is allowed, implement:
-- exchange position fetch
-- order placement
-- order cancellation
-- close position
-- precision/min-notional handling
-- leverage setup
-- account balance verification
-- emergency stop
-- durable state
-- audit logging
-
-The current dashboard controls are safe for simulator only.
+- an always-on gambling engine.
