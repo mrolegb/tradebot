@@ -35,3 +35,6 @@ strategy:
   params:
     lookback: 20
 
+simulation:
+  candles_limit: 200
+  output_dir: reports/binance_testnet

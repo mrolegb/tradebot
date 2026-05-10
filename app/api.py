@@ -3,17 +3,21 @@ from __future__ import annotations
 import asyncio
 from dataclasses import replace
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from app.exchange.safety import execution_guard_error
 from app.reporting.readers import latest_dashboard_data, read_csv, read_json
 from app.runtime.profiles import CONFIG_PROFILES, STRATEGIES, load_selected_settings, selected_profile
 from app.runtime.state import runtime_state
+from app.runtime.trading_loop import run_binance_trading_loop
 from app.simulation.batch import run_batch
 from app.simulation.runner import run_simulation
 
 app = FastAPI(title="Binance Futures Bot MVP")
+load_dotenv()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://127.0.0.1:5173", "http://localhost:5173"],
@@ -54,7 +58,7 @@ def dashboard() -> dict:
     return {
         "config": config(),
         "runtime": runtime_state.snapshot(),
-        "reports": latest_dashboard_data(),
+        "reports": latest_dashboard_data(settings.simulation.output_dir),
         "mode": settings.app.mode,
         "options": options(),
     }
@@ -70,27 +74,27 @@ def options() -> dict:
 
 @app.get("/api/summary")
 def summary() -> dict:
-    return read_json("reports/local_test/summary.json")
+    return read_json(f"{load_selected_settings().simulation.output_dir}/summary.json")
 
 
 @app.get("/api/trades")
 def trades(limit: int = 100) -> list[dict]:
-    return read_csv("reports/local_test/trades.csv", limit=limit)
+    return read_csv(f"{load_selected_settings().simulation.output_dir}/trades.csv", limit=limit)
 
 
 @app.get("/api/signals")
 def signals(limit: int = 100) -> list[dict]:
-    return read_csv("reports/local_test/signals.csv", limit=limit)
+    return read_csv(f"{load_selected_settings().simulation.output_dir}/signals.csv", limit=limit)
 
 
 @app.get("/api/equity")
 def equity(limit: int = 400) -> list[dict]:
-    return read_csv("reports/local_test/equity_curve.csv", limit=limit)
+    return read_csv(f"{load_selected_settings().simulation.output_dir}/equity_curve.csv", limit=limit)
 
 
 @app.get("/api/batch")
 def batch() -> dict:
-    return read_json("reports/local_test/batch/aggregate.json")
+    return read_json(f"{load_selected_settings().simulation.output_dir}/batch/aggregate.json")
 
 
 @app.post("/api/runtime/profile")
@@ -114,16 +118,19 @@ async def start() -> dict:
         return runtime_state.snapshot()
 
     profile = selected_profile()
-    if runtime_state.selected_profile == "binance_live":
-        raise HTTPException(status_code=403, detail="Live Binance start is blocked until live execution safeguards are implemented.")
-    if runtime_state.selected_profile == "binance_testnet":
-        raise HTTPException(status_code=501, detail="Binance testnet trading loop is not implemented yet. Use Simulation for now.")
     if not profile["can_start"]:
         raise HTTPException(status_code=501, detail=f"{profile['label']} cannot be started yet.")
 
-    runtime_state.start()
     settings = load_selected_settings()
-    active_task = asyncio.create_task(_run_simulation_loop(settings))
+    guard_error = execution_guard_error(settings.app.mode)
+    if settings.app.mode == "live" and guard_error:
+        raise HTTPException(status_code=403, detail=guard_error)
+
+    runtime_state.start()
+    if runtime_state.selected_profile == "simulation":
+        active_task = asyncio.create_task(_run_simulation_loop(settings))
+    else:
+        active_task = asyncio.create_task(run_binance_trading_loop(settings, runtime_state))
     return runtime_state.snapshot()
 
 

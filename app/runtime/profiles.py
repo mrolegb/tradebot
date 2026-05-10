@@ -16,14 +16,14 @@ CONFIG_PROFILES = {
     "binance_testnet": {
         "label": "Binance Testnet",
         "config_path": "configs/binance_testnet.yaml",
-        "can_start": False,
-        "description": "Binance Futures testnet profile. Trading loop is not enabled yet.",
+        "can_start": True,
+        "description": "Binance Futures testnet profile. Uses dry-run unless BINANCE_TESTNET_EXECUTION_ENABLED=true.",
     },
     "binance_live": {
         "label": "Binance Live",
         "config_path": "configs/binance_live.yaml",
-        "can_start": False,
-        "description": "Live Binance profile. Start is blocked until explicit live safeguards are implemented.",
+        "can_start": True,
+        "description": "Live Binance profile. Requires explicit live execution environment confirmation.",
     },
 }
 
@@ -41,4 +41,3 @@ def selected_profile() -> dict:
 def load_selected_settings() -> Settings:
     settings = load_settings(selected_profile()["config_path"])
     return replace(settings, strategy=replace(settings.strategy, name=runtime_state.selected_strategy))
-

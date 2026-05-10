@@ -27,12 +27,15 @@ def read_csv(path: str | Path, limit: int | None = None) -> list[dict[str, Any]]
     return rows
 
 
-def latest_dashboard_data() -> dict:
-    summary = read_json(REPORT_ROOT / "summary.json")
+def latest_dashboard_data(report_root: str | Path | None = None) -> dict:
+    root = Path(report_root) if report_root is not None else REPORT_ROOT
+    summary = read_json(root / "summary.json")
     aggregate = read_json(REPORT_ROOT / "batch" / "aggregate.json")
-    trades = read_csv(REPORT_ROOT / "trades.csv", limit=100)
-    signals = read_csv(REPORT_ROOT / "signals.csv", limit=100)
-    equity = read_csv(REPORT_ROOT / "equity_curve.csv", limit=400)
+    if root != REPORT_ROOT:
+        aggregate = read_json(root / "batch" / "aggregate.json")
+    trades = read_csv(root / "trades.csv", limit=100)
+    signals = read_csv(root / "signals.csv", limit=100)
+    equity = read_csv(root / "equity_curve.csv", limit=400)
     runs = read_csv(REPORT_ROOT / "batch" / "runs.csv")
     return {
         "summary": summary,
@@ -42,4 +45,3 @@ def latest_dashboard_data() -> dict:
         "equity": equity,
         "runs": runs,
     }
-

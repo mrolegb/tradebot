@@ -6,8 +6,9 @@ import asyncio
 from dotenv import load_dotenv
 
 from app.config.loader import load_settings
+from app.exchange.binance_client import BinanceFuturesClient
 from app.exchange.factory import build_market_data_client
-from app.exchange.order_executor import OrderExecutor
+from app.exchange.order_executor import BinanceOrderExecutor, OrderExecutor
 from app.market.candles import candles_to_frame
 from app.risk.cooldown_manager import CooldownManager
 from app.risk.risk_manager import RiskManager
@@ -31,6 +32,13 @@ async def run_once(config_path: str) -> None:
     client = build_market_data_client(settings)
 
     try:
+        binance_executor = None
+        if isinstance(client, BinanceFuturesClient):
+            binance_executor = BinanceOrderExecutor(client, settings.app.mode)
+            await binance_executor.load_exchange_rules()
+            for symbol in settings.trading.symbols:
+                await binance_executor.prepare_symbol(symbol, settings.trading.leverage)
+
         for symbol in settings.trading.symbols:
             if cooldown_manager.is_active():
                 log.info("cooldown_active", symbol=symbol)
@@ -58,7 +66,10 @@ async def run_once(config_path: str) -> None:
                 log.info("risk_rejected", symbol=symbol, reason=decision.reason)
                 continue
 
-            order = await executor.market_order(symbol, signal.side, decision.quantity, signal.price)
+            if binance_executor:
+                order = await binance_executor.market_order(symbol, signal.side, decision.quantity, signal.price)
+            else:
+                order = await executor.market_order(symbol, signal.side, decision.quantity, signal.price)
             database.save_order(order)
             risk_manager.register_open_position()
             log.info("order_saved", symbol=symbol, side=order.side.value, quantity=order.quantity, mode=order.mode)

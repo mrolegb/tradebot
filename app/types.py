@@ -68,4 +68,4 @@ class Order:
     price: float
     status: str
     mode: str
-
+    exchange_order_id: str | None = None

@@ -49,6 +49,8 @@ async def run_simulation(settings: Settings) -> dict[str, Any]:
                 window = frame.iloc[:end]
                 latest = window.iloc[-1]
                 price = float(latest["close"])
+                high = float(latest["high"])
+                low = float(latest["low"])
                 current_time = latest["open_time"].isoformat()
                 signal = strategy.generate_signal(symbol, window)
 
@@ -76,9 +78,9 @@ async def run_simulation(settings: Settings) -> dict[str, Any]:
                     continue
 
                 if position is not None:
-                    exit_reason = _exit_reason(position, signal.side, price)
+                    exit_reason, exit_price = _exit_reason_and_price(position, signal.side, price, high, low)
                     if exit_reason:
-                        trade = _close_position(position, current_time, price, exit_reason, settings)
+                        trade = _close_position(position, current_time, exit_price, exit_reason, settings)
                         balance += trade["net_pnl"]
                         peak_balance = max(peak_balance, balance)
                         trade["balance_after"] = balance
@@ -89,13 +91,16 @@ async def run_simulation(settings: Settings) -> dict[str, Any]:
                             trading_halted = True
                         position = None
 
+                equity = balance + (_unrealized_pnl(position, price) if position else 0.0)
+                peak_balance = max(peak_balance, equity)
                 equity_curve.append(
                     {
                         "time": current_time,
                         "symbol": symbol,
                         "balance": balance,
-                        "drawdown": balance - peak_balance,
-                        "drawdown_percent": _percent(balance - peak_balance, peak_balance),
+                        "equity": equity,
+                        "drawdown": equity - peak_balance,
+                        "drawdown_percent": _percent(equity - peak_balance, peak_balance),
                     }
                 )
 
@@ -159,21 +164,38 @@ def _open_position(
 
 
 def _exit_reason(position: OpenPosition, signal_side: SignalSide, price: float) -> str | None:
+    reason, _ = _exit_reason_and_price(position, signal_side, price, price, price)
+    return reason
+
+
+def _exit_reason_and_price(
+    position: OpenPosition,
+    signal_side: SignalSide,
+    price: float,
+    high: float,
+    low: float,
+) -> tuple[str | None, float]:
     if position.side == SignalSide.BUY:
-        if price <= position.stop_loss:
-            return "stop_loss"
-        if price >= position.take_profit:
-            return "take_profit"
+        if low <= position.stop_loss:
+            return "stop_loss", position.stop_loss
+        if high >= position.take_profit:
+            return "take_profit", position.take_profit
         if signal_side == SignalSide.SELL:
-            return "reverse_signal"
+            return "reverse_signal", price
     if position.side == SignalSide.SELL:
-        if price >= position.stop_loss:
-            return "stop_loss"
-        if price <= position.take_profit:
-            return "take_profit"
+        if high >= position.stop_loss:
+            return "stop_loss", position.stop_loss
+        if low <= position.take_profit:
+            return "take_profit", position.take_profit
         if signal_side == SignalSide.BUY:
-            return "reverse_signal"
-    return None
+            return "reverse_signal", price
+    return None, price
+
+
+def _unrealized_pnl(position: OpenPosition, mark_price: float) -> float:
+    if position.side == SignalSide.BUY:
+        return (mark_price - position.entry_price) * position.quantity
+    return (position.entry_price - mark_price) * position.quantity
 
 
 def _close_position(position: OpenPosition, exit_time: str, raw_exit_price: float, exit_reason: str, settings: Settings) -> dict[str, Any]:

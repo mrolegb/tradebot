@@ -45,6 +45,29 @@ Fully local Binance Futures simulator:
 
 This mode uses deterministic generated candles and a fake account balance. It does not call Binance or require API keys.
 
+One-pass Binance Futures testnet run:
+
+```powershell
+.\task.ps1 testnet
+```
+
+By default testnet execution starts in guarded dry-run mode. To send real testnet orders, set Binance testnet credentials in `.env` and explicitly enable execution:
+
+```powershell
+$env:BINANCE_TESTNET_EXECUTION_ENABLED="true"
+.\task.ps1 testnet
+```
+
+One-pass Binance Futures production run:
+
+```powershell
+$env:BINANCE_LIVE_EXECUTION_ENABLED="true"
+$env:BINANCE_LIVE_CONFIRM="I_UNDERSTAND_THIS_CAN_LOSE_MONEY"
+.\task.ps1 live
+```
+
+Production mode uses `configs/binance_live.yaml` and is blocked unless both live environment guards are present.
+
 Multi-candle simulation report:
 
 ```powershell
@@ -108,4 +131,10 @@ For deeper analysis, run `.\task.ps1 report` or `.\task.ps1 batch`. The report u
 
 ## Safety
 
-The MVP is configured for paper/testnet use. Do not use real Binance Futures credentials until strategy, risk, and executor behavior have been reviewed and tested.
+The bot supports three execution paths:
+
+- `simulation`: local generated-market simulation, no network or credentials.
+- `binance_testnet`: Binance Futures testnet. It dry-runs by default and sends testnet orders only when `BINANCE_TESTNET_EXECUTION_ENABLED=true`.
+- `binance_live`: Binance Futures production. It requires both `BINANCE_LIVE_EXECUTION_ENABLED=true` and `BINANCE_LIVE_CONFIRM=I_UNDERSTAND_THIS_CAN_LOSE_MONEY`.
+
+Do not use real Binance Futures credentials until strategy, risk, and executor behavior have been reviewed and tested with small sizes.

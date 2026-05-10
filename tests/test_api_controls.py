@@ -40,16 +40,28 @@ def test_rejects_unknown_profile_and_strategy() -> None:
     assert strategy_response.status_code == 400
 
 
-def test_blocks_binance_profiles_from_starting() -> None:
+def test_binance_testnet_can_start_as_guarded_dry_run_and_live_requires_confirmation(monkeypatch) -> None:
     reset_runtime()
     client = TestClient(app)
 
+    class FakeTask:
+        def done(self) -> bool:
+            return False
+
+        def cancel(self) -> None:
+            return None
+
+    def fake_create_task(coro):
+        coro.close()
+        return FakeTask()
+
+    monkeypatch.setattr(api_module.asyncio, "create_task", fake_create_task)
     client.post("/api/runtime/profile", json={"value": "binance_testnet"})
     testnet_response = client.post("/api/control/start")
     client.post("/api/runtime/profile", json={"value": "binance_live"})
     live_response = client.post("/api/control/start")
 
-    assert testnet_response.status_code == 501
+    assert testnet_response.status_code == 200
     assert live_response.status_code == 403
 
 

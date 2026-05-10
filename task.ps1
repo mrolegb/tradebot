@@ -1,6 +1,6 @@
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("help", "setup", "install", "test", "compile", "run", "sim", "report", "batch", "api", "web-install", "web-dev", "web-build", "clean", "status")]
+    [ValidateSet("help", "setup", "install", "test", "compile", "run", "sim", "testnet", "live", "report", "batch", "api", "web-install", "web-dev", "web-build", "clean", "status")]
     [string]$Task = "help"
 )
 
@@ -34,6 +34,8 @@ function Show-Help {
     Write-Host "  compile  Compile app and tests"
     Write-Host "  run      Run bot with configs/global.yaml"
     Write-Host "  sim      Run bot with configs/local_test.yaml"
+    Write-Host "  testnet  Run one bot pass with configs/binance_testnet.yaml"
+    Write-Host "  live     Run one bot pass with configs/binance_live.yaml (requires live env guards)"
     Write-Host "  report   Run local multi-candle simulation and export reports"
     Write-Host "  batch    Run multi-seed, multi-regime robustness suite"
     Write-Host "  api      Start FastAPI dev server"
@@ -76,6 +78,12 @@ switch ($Task) {
     }
     "sim" {
         Invoke-Python -m app.main --config configs/local_test.yaml
+    }
+    "testnet" {
+        Invoke-Python -m app.main --config configs/binance_testnet.yaml
+    }
+    "live" {
+        Invoke-Python -m app.main --config configs/binance_live.yaml
     }
     "report" {
         Invoke-Python -m app.simulation.cli --config configs/local_test.yaml

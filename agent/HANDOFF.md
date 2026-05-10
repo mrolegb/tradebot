@@ -11,50 +11,31 @@ Node/npm:
 - npm `11.6.2`
 
 The project is a Binance Futures trading bot MVP with:
-- local simulator
+- local generated-market simulation
 - strategy layer
 - risk/cooldown controls
 - report generation
 - batch robustness simulations
+- guarded Binance testnet/live execution path
+- SQLite storage for trades, runtime snapshots, and positions
 - FastAPI backend
 - React/Vite dashboard
 
-Git repository is initialized and connected to:
+Git remote:
 
 ```text
 git@github.com:mrolegb/tradebot.git
 ```
-
-The initial MVP was pushed to `main`.
-
-## Current Running Services
-
-Backend:
-
-```powershell
-http://127.0.0.1:8000
-```
-
-Frontend:
-
-```powershell
-http://127.0.0.1:5173
-```
-
-If services need restart:
-
-```powershell
-.\task.ps1 api
-.\task.ps1 web-dev
-```
-
-The user usually works from PowerShell on Windows.
 
 ## Common Commands
 
 ```powershell
 .\task.ps1 setup
 .\task.ps1 test
+.\task.ps1 compile
+.\task.ps1 sim
+.\task.ps1 testnet
+.\task.ps1 live
 .\task.ps1 report
 .\task.ps1 batch
 .\task.ps1 api
@@ -63,65 +44,123 @@ The user usually works from PowerShell on Windows.
 .\task.ps1 web-build
 ```
 
-Tests currently pass:
+Current verification status:
 
 ```powershell
 .\task.ps1 test
-# 35 passed
+# 40 passed
+
+.\task.ps1 compile
+# app and tests compile
+
+.\task.ps1 web-build
+# succeeds; Vite warns that the JS chunk is over 500 kB
 ```
 
-Frontend build currently succeeds:
+## Execution Modes
+
+### Local Simulation
+
+Command:
 
 ```powershell
-.\task.ps1 web-build
+.\task.ps1 sim
 ```
 
-CI workflow:
+Config:
 
 ```text
-.github/workflows/ci.yml
+configs/local_test.yaml
 ```
 
-It runs on every branch push and pull request:
-- Python 3.13 install
-- `python -m pytest -q`
-- Node 24 install
-- `npm ci`
-- `npm run build`
+This uses `app.exchange.simulator.SimulatedBinanceFuturesClient`. It does not call Binance and does not need API keys.
+
+### Binance Testnet
+
+Command:
+
+```powershell
+.\task.ps1 testnet
+```
+
+Config:
+
+```text
+configs/binance_testnet.yaml
+```
+
+By default, testnet execution is guarded dry-run. Real testnet orders require:
+
+```powershell
+$env:BINANCE_TESTNET_EXECUTION_ENABLED="true"
+```
+
+Credentials are loaded from `.env`:
+
+```text
+BINANCE_API_KEY=...
+BINANCE_API_SECRET=...
+```
+
+### Binance Live
+
+Command:
+
+```powershell
+.\task.ps1 live
+```
+
+Config:
+
+```text
+configs/binance_live.yaml
+```
+
+Live execution is blocked unless both guards are present:
+
+```powershell
+$env:BINANCE_LIVE_EXECUTION_ENABLED="true"
+$env:BINANCE_LIVE_CONFIRM="I_UNDERSTAND_THIS_CAN_LOSE_MONEY"
+```
+
+Do not bypass these guards casually.
 
 ## Main Structure
 
 ```text
 app/
   api.py
+  main.py
   config/loader.py
   exchange/
     binance_client.py
-    simulator.py
     factory.py
+    order_executor.py
+    safety.py
+    simulator.py
   market/
     candles.py
     indicators.py
   risk/
     risk_manager.py
     cooldown_manager.py
+  runtime/
+    profiles.py
+    state.py
+    trading_loop.py
   simulation/
     runner.py
     batch.py
     cli.py
     report.py
+  storage/
+    database.py
+    models.py
   strategies/
     breakout.py
     ema_cross.py
     rsi_mean_reversion.py
-  runtime/
-    state.py
-    profiles.py
-  reporting/
-    readers.py
 web/
-  package.json
-  vite.config.js
   src/main.jsx
   src/styles.css
 configs/
@@ -129,50 +168,10 @@ configs/
   binance_testnet.yaml
   binance_live.yaml
 tests/
-  test_api_controls.py
-  test_batch_aggregate.py
-  test_binance_client.py
-  test_breakout_filters.py
-  test_config_loader.py
-  test_indicators.py
-  test_order_executor.py
-  test_reporting_readers.py
-  test_runtime_state.py
-  test_storage_database.py
 agent/
   HANDOFF.md
+  STRATEGIES_101.md
 ```
-
-## Test Coverage
-
-Current Python test suite has 35 tests.
-
-Covered areas:
-- API dashboard/options behavior
-- API profile and strategy validation
-- API Binance testnet/live start guards
-- API start/stop happy path with a mocked background task
-- batch aggregate calculations
-- Binance signed endpoint credentials guard
-- config loader validation
-- cooldown manager
-- risk manager
-- simulator candles and account behavior
-- simulation report file generation
-- strategy factory
-- breakout filters
-- indicators
-- order executor safety behavior
-- reporting readers
-- runtime state
-- SQLite trade storage
-- backtest engine smoke behavior
-
-Known remaining useful tests:
-- true candle-by-candle simulation state once implemented
-- historical data ingestion once added
-- frontend component tests if the dashboard grows
-- testnet trading loop tests once Binance testnet execution exists
 
 ## Runtime Profiles
 
@@ -183,109 +182,38 @@ Profiles:
 - `binance_testnet`
 - `binance_live`
 
-Current safety behavior:
-- `simulation` can start.
-- `binance_testnet` can be selected, but `Start` returns `501` because the live/testnet trading loop is not implemented yet.
-- `binance_live` can be selected, but `Start` returns `403`; this is intentional until live safeguards and real exchange execution are implemented.
+`POST /api/control/start` in `app/api.py`:
+- starts `_run_simulation_loop()` for `simulation`
+- starts `run_binance_trading_loop()` for `binance_testnet` and `binance_live`
+- rejects live start with HTTP 403 unless live env guards are present
+- allows testnet start, but Binance orders remain dry-run unless `BINANCE_TESTNET_EXECUTION_ENABLED=true`
 
-Do not remove these guards casually.
+## Binance Execution Path
 
-## Dashboard Behavior
+Important files:
+- `app/exchange/binance_client.py`
+- `app/exchange/order_executor.py`
+- `app/exchange/safety.py`
+- `app/runtime/trading_loop.py`
 
-React dashboard is in `web/src/main.jsx`.
+Implemented Binance REST operations:
+- public klines
+- exchange info
+- signed account
+- signed position risk
+- change leverage
+- market order
+- cancel all open orders
 
-Current controls:
-- Config dropdown
-- Strategy dropdown
-- `Start`
-- `Stop`
-- `Run Report`
-- `Run Batch`
+`BinanceOrderExecutor`:
+- loads symbol rules from `exchangeInfo`
+- normalizes quantity using `LOT_SIZE.stepSize`
+- checks minimum quantity and minimum notional
+- supports dry-run orders
+- sends market orders when guards allow it
+- can close an existing position by placing the opposite market order
 
-Removed by user request:
-- Pause
-- Resume
-- Close All Sim
-
-Dashboard polls `/api/dashboard` every 5 seconds.
-
-Important visual indicators:
-- `Running` / `Stopped`
-- `Loop Runs`
-- `Last Run`
-- latest report summary
-- equity chart
-- latest trades
-- latest signals
-- batch by regime table
-
-## Start / Stop Behavior
-
-Implemented in `app/api.py`.
-
-`POST /api/control/start`:
-- checks selected profile
-- starts an asyncio background task for simulation profile
-- the task loops until stopped
-- each loop runs `run_simulation(settings)`
-- each loop uses a new seed:
-
-```python
-seed = settings.simulation.seed + runtime_state.loop_count + 1
-```
-
-- after each run, `runtime_state.register_loop_run()` increments `loop_count`
-- waits 5 seconds before the next run
-
-`POST /api/control/stop`:
-- cancels the active task
-- sets runtime `running = False`
-
-Current simulation loop is not real-time market replay. It repeatedly runs report-style simulations with different seeds and overwrites `reports/local_test/*`.
-
-## Run Report / Run Batch
-
-`Run Report`:
-- endpoint: `POST /api/simulation/report`
-- runs one simulation using the selected profile/strategy
-- writes:
-
-```text
-reports/local_test/summary.json
-reports/local_test/trades.csv
-reports/local_test/signals.csv
-reports/local_test/equity_curve.csv
-```
-
-`Run Batch`:
-- endpoint: `POST /api/simulation/batch`
-- only allowed for `simulation` profile
-- runs all configured seeds/regimes from `configs/local_test.yaml`
-- writes:
-
-```text
-reports/local_test/batch/aggregate.json
-reports/local_test/batch/runs.csv
-reports/local_test/batch/<regime>/seed_<n>/
-```
-
-## Strategy State
-
-The most developed strategy is `BreakoutStrategy` in `app/strategies/breakout.py`.
-
-Current filters:
-- close-based breakout level
-- breakout buffer
-- EMA fast/slow trend confirmation
-- minimum trend gap
-- rolling volatility min/max filter
-- optional shorts
-
-`rolling_volatility()` is in `app/market/indicators.py`.
-
-The strategy was improved because the original breakout logic overtraded choppy/high-volatility regimes.
-
-## Risk / Simulation Behavior
+## Simulation Behavior
 
 Simulation runner: `app/simulation/runner.py`.
 
@@ -298,85 +226,125 @@ Includes:
 - take profit
 - cooldown after losing trade
 - max daily loss kill switch
+- intrabar stop/take checks using candle `high` and `low`
+- equity curve with unrealized PnL while a position is open
 
-Current max daily loss behavior:
-- uses `risk.max_daily_loss_percent`
-- stops opening new positions when balance falls below allowed daily loss
-
-## Latest Robustness Result
-
-After improvements, batch behavior was approximately:
+Simulation reports are written under:
 
 ```text
-Runs:              50
-Positive runs:     20
-Failure rate:      60%
-Mean return:       +2.63%
-Median return:      0.00%
-Worst run:         -4.11%
-Best run:         +13.82%
-Worst drawdown:    -4.11%
+reports/local_test/
 ```
 
-Regime behavior:
+Files:
+- `summary.json`
+- `trades.csv`
+- `signals.csv`
+- `equity_curve.csv`
+
+Batch reports:
 
 ```text
-uptrend:          profitable
-downtrend:        profitable
-low_volatility:   no trades
-choppy:           controlled loss via kill switch
-high_volatility:  controlled loss via kill switch
+reports/local_test/batch/
 ```
 
-Main takeaway:
-- risk is much better controlled than before
-- strategy is still regime-dependent
-- choppy/high-volatility filters need further work
+## Dashboard Behavior
 
-## Reports Are Ignored
+React dashboard is in `web/src/main.jsx`.
 
-Generated reports are under `reports/` and are git-ignored.
+Controls:
+- Config dropdown
+- Strategy dropdown
+- `Start`
+- `Stop`
+- `Run Report`
+- `Run Batch`
 
-`web/node_modules/` and `web/dist/` are also git-ignored.
+Dashboard polls `/api/dashboard` every 5 seconds.
+
+Known UI limitation:
+- long `Run Batch` requests are still synchronous HTTP calls
+- no frontend component tests yet
+- Vite build succeeds but warns about one chunk over 500 kB
+
+## Test Coverage
+
+Current Python test suite has 40 tests.
+
+Covered areas:
+- API dashboard/options behavior
+- API profile and strategy validation
+- API simulation/testnet/live start behavior
+- live/testnet env safety guards
+- API start/stop happy path with mocked background task
+- batch aggregate calculations
+- Binance signed endpoint credentials guard
+- Binance executor dry-run and quantity normalization
+- Binance trading loop one-cycle dry-run behavior
+- config loader validation
+- cooldown manager
+- risk manager
+- simulator candles and account behavior
+- simulation report file generation
+- intrabar stop/take checks
+- strategy factory
+- breakout filters
+- indicators
+- reporting readers
+- runtime state
+- SQLite trade, runtime, and position persistence
+- backtest engine smoke behavior
+
+## Strategy State
+
+Strategy implementations live in `app/strategies/`.
+
+Available strategies:
+- `breakout`
+- `ema_cross`
+- `rsi_mean_reversion`
+
+The most developed strategy is `BreakoutStrategy`.
+
+Current breakout filters:
+- previous close breakout level
+- breakout buffer
+- EMA fast/slow trend confirmation
+- minimum trend gap
+- rolling volatility min/max filter
+- optional shorts
+
+See `agent/STRATEGIES_101.md` for a plain-English explanation.
 
 ## Known Limitations
 
-1. Binance testnet/live trading loop is not implemented.
-2. Real order placement is intentionally gated.
-3. `Close All` real exchange control does not exist yet.
-4. UI control state is in-memory only; restarting backend resets it.
-5. Simulation loop overwrites latest report files each cycle.
-6. Simulation is synthetic, not historical Binance data.
-7. Current simulator prices are generated, not downloaded.
-8. Batch runs can take roughly 1-2 minutes depending on machine load.
+1. Simulation still uses generated candles, not downloaded historical Binance data.
+2. The API `Start` simulation loop still repeats report-style simulations with different seeds.
+3. Binance live/testnet path uses polling REST, not websocket/user-data streams.
+4. No bracket stop-loss/take-profit orders are placed on Binance yet; exits are handled by loop logic.
+5. No margin type setup yet.
+6. No emergency close-all endpoint in the dashboard yet.
+7. Runtime state persistence exists, but startup recovery is not fully wired into API startup.
+8. Long-running batch/report jobs should be moved to background job state with progress.
+9. Frontend component tests are still missing.
 
 ## Good Next Steps
 
-Recommended next technical steps:
-
-1. Add historical data ingestion from Binance testnet/public klines.
-2. Add symbol universe selection and `symbol_rankings.csv`.
-3. Persist runtime state and open positions in SQLite.
-4. Replace repeated report loop with true candle-by-candle simulation state.
-5. Implement Binance testnet trading loop with dry-run guard.
-6. Add explicit confirmation and env flag before enabling live mode.
-7. Improve dashboard feedback while long tasks run.
-8. Add frontend component tests if dashboard behavior becomes more complex.
+1. Add historical Binance kline ingestion and cache.
+2. Add startup recovery from SQLite runtime/positions.
+3. Add Binance margin type setup and bracket stop/take orders.
+4. Add emergency close-all/cancel-all API with explicit confirmation.
+5. Replace API long-running report/batch calls with background jobs and progress.
+6. Add frontend tests for profile switching and control states.
+7. Add websocket/user-data stream support for real fill/position updates.
 
 ## Safety Notes
 
-Do not enable live trading by simply removing the API guard.
+Live trading can lose money. Keep the live env guards intact.
 
-Before live/testnet start is allowed, implement:
-- exchange position fetch
-- order placement
-- order cancellation
-- close position
-- precision/min-notional handling
-- leverage setup
-- account balance verification
-- emergency stop
-- durable state
-- audit logging
-
-The current dashboard controls are safe for simulator only.
+Before increasing size on production:
+- test on local simulation
+- test on Binance testnet with tiny quantities
+- inspect `data/*.sqlite3`
+- inspect generated reports
+- check Binance UI positions manually
+- verify API key permissions and IP restrictions
