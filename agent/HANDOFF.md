@@ -34,8 +34,11 @@ git@github.com:mrolegb/tradebot.git
 .\task.ps1 test
 .\task.ps1 compile
 .\task.ps1 sim
+.\task.ps1 local-smoke
 .\task.ps1 testnet
+.\task.ps1 testnet-smoke
 .\task.ps1 live
+.\task.ps1 live-smoke
 .\task.ps1 report
 .\task.ps1 batch
 .\task.ps1 api
@@ -75,6 +78,14 @@ configs/local_test.yaml
 
 This uses `app.exchange.simulator.SimulatedBinanceFuturesClient`. It does not call Binance and does not need API keys.
 
+Smoke command:
+
+```powershell
+.\task.ps1 local-smoke
+```
+
+It runs a short report simulation under `reports/local_test/smoke/` and verifies expected output files exist.
+
 ### Binance Testnet
 
 Command:
@@ -102,6 +113,24 @@ BINANCE_API_KEY=...
 BINANCE_API_SECRET=...
 ```
 
+Smoke command:
+
+```powershell
+.\task.ps1 testnet-smoke
+```
+
+It checks:
+- signed account endpoint
+- exchange info/rules
+- candles
+- position risk
+- quantity normalization
+- cancel-all path
+- market order path
+- close-position path
+
+Without `BINANCE_TESTNET_EXECUTION_ENABLED=true`, the order step remains dry-run. With the flag enabled, it opens and closes a minimal testnet position.
+
 ### Binance Live
 
 Command:
@@ -124,6 +153,20 @@ $env:BINANCE_LIVE_CONFIRM="I_UNDERSTAND_THIS_CAN_LOSE_MONEY"
 ```
 
 Do not bypass these guards casually.
+
+Live smoke requires one extra guard:
+
+```powershell
+$env:BINANCE_LIVE_SMOKE_CONFIRM="PLACE_LIVE_SMOKE_ORDER"
+.\task.ps1 live-smoke
+```
+
+Smoke sizing:
+
+```powershell
+$env:BINANCE_SMOKE_SYMBOL="BTCUSDT"
+$env:BINANCE_SMOKE_NOTIONAL_USDT="10"
+```
 
 ## Main Structure
 
@@ -195,6 +238,7 @@ Important files:
 - `app/exchange/order_executor.py`
 - `app/exchange/safety.py`
 - `app/runtime/trading_loop.py`
+- `app/runtime/smoke.py`
 
 Implemented Binance REST operations:
 - public klines
@@ -204,6 +248,11 @@ Implemented Binance REST operations:
 - change leverage
 - market order
 - cancel all open orders
+
+Smoke coverage:
+- local report generation smoke
+- testnet account/rules/candle/position/order-flow smoke
+- live smoke with extra confirmation
 
 `BinanceOrderExecutor`:
 - loads symbol rules from `exchangeInfo`
@@ -280,6 +329,8 @@ Covered areas:
 - Binance signed endpoint credentials guard
 - Binance executor dry-run and quantity normalization
 - Binance trading loop one-cycle dry-run behavior
+- Binance smoke dry-run behavior
+- live smoke extra confirmation guard
 - config loader validation
 - cooldown manager
 - risk manager

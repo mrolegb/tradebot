@@ -4,6 +4,7 @@ import os
 
 
 LIVE_CONFIRMATION = "I_UNDERSTAND_THIS_CAN_LOSE_MONEY"
+LIVE_SMOKE_CONFIRMATION = "PLACE_LIVE_SMOKE_ORDER"
 
 
 def testnet_execution_enabled() -> bool:
@@ -15,6 +16,10 @@ def live_execution_enabled() -> bool:
         os.getenv("BINANCE_LIVE_EXECUTION_ENABLED", "").lower() in {"1", "true", "yes"}
         and os.getenv("BINANCE_LIVE_CONFIRM") == LIVE_CONFIRMATION
     )
+
+
+def live_smoke_enabled() -> bool:
+    return live_execution_enabled() and os.getenv("BINANCE_LIVE_SMOKE_CONFIRM") == LIVE_SMOKE_CONFIRMATION
 
 
 def execution_guard_error(mode: str) -> str | None:

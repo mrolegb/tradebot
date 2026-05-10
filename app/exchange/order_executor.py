@@ -92,6 +92,14 @@ class BinanceOrderExecutor:
             return {"symbol": symbol, "status": "DRY_RUN"}
         return await self.client.cancel_all_open_orders(symbol)
 
+    def minimum_quantity_for_notional(self, symbol: str, price: float, notional: float) -> float:
+        if price <= 0:
+            raise ValueError("Price must be positive")
+        rules = self._rules.get(symbol, {})
+        min_notional = float(rules.get("min_notional", Decimal("0")) or 0)
+        target_notional = max(notional, min_notional)
+        return self.normalize_quantity(symbol, target_notional / price)
+
     def normalize_quantity(self, symbol: str, quantity: float) -> float:
         rules = self._rules.get(symbol)
         if not rules:

@@ -45,6 +45,14 @@ Fully local Binance Futures simulator:
 
 This mode uses deterministic generated candles and a fake account balance. It does not call Binance or require API keys.
 
+Local smoke test:
+
+```powershell
+.\task.ps1 local-smoke
+```
+
+This runs a short local report simulation and verifies that report files are created.
+
 One-pass Binance Futures testnet run:
 
 ```powershell
@@ -58,6 +66,14 @@ $env:BINANCE_TESTNET_EXECUTION_ENABLED="true"
 .\task.ps1 testnet
 ```
 
+Testnet smoke test:
+
+```powershell
+.\task.ps1 testnet-smoke
+```
+
+It checks account access, exchange rules, candles, position risk, and the order path. Without `BINANCE_TESTNET_EXECUTION_ENABLED=true`, the order step is a dry-run. With the flag enabled, it opens and closes a minimal testnet position.
+
 One-pass Binance Futures production run:
 
 ```powershell
@@ -67,6 +83,22 @@ $env:BINANCE_LIVE_CONFIRM="I_UNDERSTAND_THIS_CAN_LOSE_MONEY"
 ```
 
 Production mode uses `configs/binance_live.yaml` and is blocked unless both live environment guards are present.
+
+Production smoke test requires one extra confirmation:
+
+```powershell
+$env:BINANCE_LIVE_EXECUTION_ENABLED="true"
+$env:BINANCE_LIVE_CONFIRM="I_UNDERSTAND_THIS_CAN_LOSE_MONEY"
+$env:BINANCE_LIVE_SMOKE_CONFIRM="PLACE_LIVE_SMOKE_ORDER"
+.\task.ps1 live-smoke
+```
+
+You can control the smoke size with:
+
+```powershell
+$env:BINANCE_SMOKE_SYMBOL="BTCUSDT"
+$env:BINANCE_SMOKE_NOTIONAL_USDT="10"
+```
 
 Multi-candle simulation report:
 
