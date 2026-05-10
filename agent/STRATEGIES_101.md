@@ -1,325 +1,397 @@
-# Strategies 101
+# Стратегии совсем простыми словами
 
-This file explains the bot strategies in plain language.
-
-## What A Strategy Does
-
-A strategy answers one simple question:
+Бот смотрит на цену и каждый раз выбирает одно из трех:
 
 ```text
-Should we buy, sell, or do nothing right now?
+BUY  = купить
+SELL = продать
+HOLD = ничего не делать
 ```
 
-In code, every strategy returns a `Signal`:
+Все.
+
+Стратегия - это просто правило, по которому бот решает:
 
 ```text
-BUY   = open or prefer a long position
-SELL  = open or prefer a short position
-HOLD  = do nothing
+покупать, продавать или сидеть тихо
 ```
 
-The bot then sends that signal through risk checks. A strategy is not allowed to decide position size by itself.
+## Важно
 
-The strategy files are here:
+Стратегия не гарантирует прибыль.
+
+Стратегия просто говорит:
 
 ```text
-app/strategies/
+"Похоже, сейчас можно попробовать купить"
 ```
 
-## The Three Current Strategies
+или:
+
+```text
+"Похоже, сейчас можно попробовать продать"
+```
+
+Иногда она права. Иногда ошибается.
+
+## Какие стратегии есть
+
+У бота сейчас есть 3 стратегии:
+
+```text
+1. EMA Cross
+2. RSI
+3. Breakout
+```
+
+Ниже очень простое объяснение.
 
 ## 1. EMA Cross
 
-File:
+Очень просто:
 
 ```text
-app/strategies/ema_cross.py
+бот смотрит, куда сейчас скорее идет цена
 ```
 
-EMA means "exponential moving average". Think of it as a smoothed price line.
-
-This strategy uses two smoothed lines:
+Представь две линии:
 
 ```text
-fast EMA = reacts quickly
-slow EMA = reacts slowly
+быстрая линия
+медленная линия
 ```
 
-The idea:
+Быстрая линия быстрее реагирует на цену.
+
+Если быстрая линия пошла выше медленной:
 
 ```text
-fast line crosses above slow line = price may be starting to go up = BUY
-fast line crosses below slow line = price may be starting to go down = SELL
-no cross = HOLD
+цена, возможно, начинает расти
+бот думает: можно купить
 ```
 
-Simple example:
+Если быстрая линия пошла ниже медленной:
 
 ```text
-Yesterday: fast EMA was below slow EMA
-Today:     fast EMA is above slow EMA
-Signal:   BUY
+цена, возможно, начинает падать
+бот думает: можно продать
 ```
 
-Good for:
-- catching a new trend
-
-Bad for:
-- sideways/choppy markets, where lines cross back and forth and create bad trades
-
-## 2. RSI Mean Reversion
-
-File:
+Пример:
 
 ```text
-app/strategies/rsi_mean_reversion.py
+Цена долго была около 100.
+Потом стала 101, 102, 103.
+Быстрая линия пошла вверх.
+Бот может сказать BUY.
 ```
 
-RSI is a number from 0 to 100.
-
-Roughly:
+Главная идея:
 
 ```text
-low RSI  = price may be oversold
-high RSI = price may be overbought
+"Если цена начала двигаться вверх - попробуем ехать вместе с ней."
 ```
 
-Default logic:
+Проблема:
 
 ```text
-RSI <= 30 = BUY
-RSI >= 70 = SELL
-otherwise = HOLD
+если цена дергается туда-сюда, бот может часто ошибаться
 ```
 
-The idea is "price moved too far, maybe it snaps back".
+## 2. RSI
 
-Good for:
-- range-bound markets
-- markets that bounce up and down
+Очень просто:
 
-Bad for:
-- strong trends, because "overbought" can stay overbought and keep going up
-- strong downtrends, because "oversold" can keep falling
+```text
+бот смотрит, не слишком ли цена убежала вверх или вниз
+```
+
+Если цена сильно упала:
+
+```text
+бот думает: возможно, цена скоро отскочит вверх
+можно купить
+```
+
+Если цена сильно выросла:
+
+```text
+бот думает: возможно, цена скоро откатится вниз
+можно продать
+```
+
+Пример:
+
+```text
+Цена была 100.
+Потом быстро упала до 90.
+Бот думает: может быть, падение уже слишком сильное.
+Бот может сказать BUY.
+```
+
+Другой пример:
+
+```text
+Цена была 100.
+Потом быстро выросла до 115.
+Бот думает: может быть, рост уже слишком сильный.
+Бот может сказать SELL.
+```
+
+Главная идея:
+
+```text
+"Если цена слишком резко убежала, она может вернуться назад."
+```
+
+Проблема:
+
+```text
+иногда цена не возвращается
+она может падать дальше или расти дальше
+```
 
 ## 3. Breakout
 
-File:
+Это главная стратегия сейчас.
+
+Очень просто:
 
 ```text
-app/strategies/breakout.py
+бот смотрит, пробила ли цена важный уровень
 ```
 
-This is currently the most developed strategy.
+Представь цену как человека в комнате.
 
-A breakout means:
+Комната:
 
 ```text
-price escapes above a recent high
-or
-price escapes below a recent low
+пол = нижний уровень
+потолок = верхний уровень
 ```
 
-The bot looks back over recent candles, for example 20 candles:
+Цена долго ходит внутри комнаты:
 
 ```text
-recent high = highest close in the last 20 candles
-recent low  = lowest close in the last 20 candles
+98, 99, 100, 99, 101, 100
 ```
 
-Then it adds a small buffer, so it does not buy just because price barely touched the level.
-
-Example:
+Потом цена пробивает потолок:
 
 ```text
-recent high = 100
-buffer      = 0.12%
-buy level   = 100.12
-
-if price closes above 100.12, breakout may be real
+102, 103, 104
 ```
 
-But the strategy does not buy immediately. It also checks filters.
-
-## Breakout Filters
-
-## Trend Filter
-
-The breakout strategy uses fast and slow EMA lines.
-
-For a buy:
+Бот думает:
 
 ```text
-fast EMA must be above slow EMA
+цена выбралась наверх
+может быть, начался рост
+можно купить
 ```
 
-For a sell:
+Если цена пробивает пол:
 
 ```text
-fast EMA must be below slow EMA
+97, 96, 95
 ```
 
-This avoids buying a breakout when the bigger direction is still weak.
-
-## Trend Gap Filter
-
-It also checks that the two EMA lines are not almost equal.
-
-If they are too close:
+Бот думает:
 
 ```text
-trend is weak or unclear
-do nothing
+цена провалилась вниз
+может быть, началось падение
+можно продать
 ```
 
-This helps avoid trades in flat markets.
-
-## Volatility Filter
-
-Volatility means "how much price is moving".
-
-The strategy avoids two bad zones:
+Главная идея:
 
 ```text
-too little movement = no opportunity
-too much movement   = chaos, bad fills, stop losses
+"Если цена вырвалась из старого диапазона, можно попробовать пойти за ней."
 ```
 
-So:
+## Почему Breakout не покупает сразу
+
+Потому что цена часто обманывает.
+
+Пример:
 
 ```text
-volatility too low  = HOLD
-volatility too high = HOLD
-volatility normal   = strategy may trade
+Цена была около 100.
+Прыгнула до 101.
+Все подумали: начался рост.
+Потом цена сразу упала обратно до 99.
 ```
 
-## Shorts
+Это плохой сигнал.
 
-The breakout strategy can short if `allow_shorts: true`.
-
-Short means:
+Поэтому Breakout проверяет:
 
 ```text
-SELL first, hoping price goes down
-BUY later to close
+движение выглядит сильным?
+рынок не слишком тихий?
+рынок не слишком бешеный?
+цена реально пробила уровень, а не просто чуть коснулась?
 ```
 
-This is futures behavior. It is not spot trading.
+Если ответы нормальные - бот может торговать.
 
-## What Happens After A Strategy Says BUY Or SELL
+Если нет - бот делает HOLD.
 
-The signal goes through risk management.
+## Что значит HOLD
 
-Risk manager checks:
+`HOLD` значит:
 
 ```text
-Are we already at max open positions?
-Would this trade risk too much?
-Have we hit max daily loss?
-Is the stop loss valid?
+ничего не делать
 ```
 
-Only then does the bot place or simulate an order.
+Это нормально.
 
-So the flow is:
+Хороший бот не обязан постоянно торговать.
+
+Иногда лучший ход:
 
 ```text
-candles -> strategy -> signal -> risk manager -> executor -> order
+сидеть и ждать
 ```
 
-## Stop Loss And Take Profit
+## Что происходит после BUY или SELL
 
-The strategy does not directly set stop loss and take profit.
+Если стратегия сказала BUY или SELL, бот не сразу летит покупать.
 
-The simulation runner uses config values:
+Сначала он спрашивает риск-менеджер:
 
 ```text
-simulation.stop_loss_percent
-simulation.take_profit_percent
+это не слишком опасно?
+мы не потеряем слишком много?
+у нас уже нет открытой сделки?
 ```
 
-Example:
+Если риск-менеджер говорит "нельзя":
 
 ```text
-entry price = 100
-stop loss   = 1%
-take profit = 2%
-
-long stop   = 99
-long target = 102
+сделки не будет
 ```
 
-For shorts it is reversed:
+Если риск-менеджер говорит "можно":
 
 ```text
-short entry = 100
-short stop  = 101
-short target = 98
+бот открывает сделку
 ```
 
-## What To Watch In Reports
+## Stop Loss
 
-After running:
+Stop loss - это аварийный выход.
+
+Очень просто:
+
+```text
+если сделка пошла плохо, закрываем ее
+```
+
+Пример:
+
+```text
+купили по 100
+stop loss = 99
+
+если цена упала до 99
+бот закрывает сделку
+```
+
+Это нужно, чтобы маленькая ошибка не стала большой потерей.
+
+## Take Profit
+
+Take profit - это забрать прибыль.
+
+Пример:
+
+```text
+купили по 100
+take profit = 102
+
+если цена выросла до 102
+бот закрывает сделку с прибылью
+```
+
+## Самая простая шпаргалка
+
+```text
+EMA Cross:
+цена вроде начала идти в какую-то сторону
+
+RSI:
+цена слишком сильно упала или выросла
+
+Breakout:
+цена пробила важный уровень
+```
+
+## Какую стратегию использовать
+
+Сейчас лучше начинать с:
+
+```text
+breakout
+```
+
+Почему:
+
+```text
+у нее больше проверок
+она осторожнее
+она лучше покрыта тестами
+```
+
+## Что смотреть после симуляции
+
+Запуск:
 
 ```powershell
 .\task.ps1 report
 ```
 
-check:
+Потом смотреть файл:
 
 ```text
 reports/local_test/summary.json
-reports/local_test/trades.csv
-reports/local_test/signals.csv
-reports/local_test/equity_curve.csv
 ```
 
-Important fields:
+Самые важные строки:
 
 ```text
-return_percent       = total result
-total_trades         = how often it traded
-win_rate_percent     = percent of winning trades
-profit_factor        = gross profit divided by gross loss
-max_drawdown_percent = worst equity drop
+final_balance   = сколько денег стало
+return_percent  = сколько процентов заработали или потеряли
+total_trades    = сколько было сделок
+max_drawdown    = насколько больно проседали
 ```
 
-High return alone is not enough. A strategy can make money in one run and still be bad if drawdown is huge or results only work in one market regime.
+Если `final_balance` больше стартового - симуляция заработала.
 
-## Simple Mental Model
+Если меньше - симуляция потеряла.
 
-EMA Cross:
+Но один хороший запуск ничего не доказывает.
 
-```text
-"A trend may be starting."
-```
-
-RSI Mean Reversion:
-
-```text
-"Price stretched too far, maybe it bounces back."
-```
-
-Breakout:
-
-```text
-"Price escaped a range, and filters say the move may be real."
-```
-
-## Current Practical Advice
-
-Use `breakout` first. It has the most filters and the best current test coverage.
-
-Use `ema_cross` as a simple baseline.
-
-Use `rsi_mean_reversion` carefully, because it can fight strong trends.
-
-Before trusting any strategy:
+Нужно гонять много раз:
 
 ```powershell
-.\task.ps1 report
 .\task.ps1 batch
-.\task.ps1 test
 ```
 
-Then inspect the report files. Do not judge only from one profitable run.
+## Главное, что надо запомнить
+
+Бот не знает будущего.
+
+Он просто смотрит на прошлые цены и делает предположение.
+
+Стратегия - это не магия.
+
+Стратегия - это правило:
+
+```text
+если вижу такую картину - покупаю
+если вижу другую картину - продаю
+если непонятно - ничего не делаю
+```
