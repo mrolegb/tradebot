@@ -19,6 +19,8 @@ class ExchangeConfig:
     testnet: bool = True
     rest_url: str = "https://testnet.binancefuture.com"
     websocket_url: str = "wss://stream.binancefuture.com"
+    api_key_env: str | None = None
+    api_secret_env: str | None = None
 
 
 @dataclass(frozen=True)

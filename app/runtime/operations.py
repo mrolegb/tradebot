@@ -244,19 +244,7 @@ class RuntimeStore:
                 """,
                 (limit,),
             ).fetchall()
-        return [
-            {
-                "id": row[0],
-                "symbol": row[1],
-                "action": row[2],
-                "quantity": row[3],
-                "reason": row[4],
-                "status": row[5],
-                "created_at": row[6],
-                "updated_at": row[7],
-            }
-            for row in rows
-        ]
+        return [{"id": row[0], "symbol": row[1], "action": row[2], "quantity": row[3], "reason": row[4], "status": row[5], "created_at": row[6], "updated_at": row[7]} for row in rows]
 
 
 class DuplicateActionGuard:
@@ -265,25 +253,14 @@ class DuplicateActionGuard:
         self.policy = policy
 
     def allowed(self, *, symbol: str, action: str) -> tuple[bool, str]:
-        recent = self.store.recent_record(
-            symbol=symbol,
-            action=action,
-            within_seconds=self.policy.action_cooldown_seconds,
-        )
+        recent = self.store.recent_record(symbol=symbol, action=action, within_seconds=self.policy.action_cooldown_seconds)
         if recent is not None:
             return False, "duplicate_action_cooldown"
         return True, "accepted"
 
 
 class RuntimeSupervisor:
-    def __init__(
-        self,
-        engine: CandleRuntimeEngine,
-        *,
-        store: RuntimeStore | None = None,
-        policy: ExposurePolicy | None = None,
-        cycle_interval_seconds: int = 60,
-    ) -> None:
+    def __init__(self, engine: CandleRuntimeEngine, *, store: RuntimeStore | None = None, policy: ExposurePolicy | None = None, cycle_interval_seconds: int = 60) -> None:
         self.engine = engine
         self.store = store or RuntimeStore()
         self.policy = policy or ExposurePolicy()
@@ -296,6 +273,18 @@ class RuntimeSupervisor:
     async def run_once(self, *, symbol: str, interval: str, lookback: int = 200) -> dict[str, Any]:
         self.state = SupervisorState.RUNNING
         self.watchdog.heartbeat()
+
+        policy_allowed, policy_reason = self.policy.validate_action(symbol=symbol, action="open_long")
+        duplicate_allowed, duplicate_reason = self.duplicate_guard.allowed(symbol=symbol, action="open_long")
+
+        if not policy_allowed:
+            runtime_state.pause(policy_reason)
+            raise RuntimeError(policy_reason)
+
+        if not duplicate_allowed:
+            runtime_state.pause(duplicate_reason)
+            raise RuntimeError(duplicate_reason)
+
         try:
             cycle = await self.engine.runtime_cycle(symbol=symbol, interval=interval, lookback=lookback)
             self.last_cycle = cycle
@@ -322,62 +311,26 @@ class RuntimeSupervisor:
         self.state = SupervisorState.STOPPING
 
     def pending_recovery(self) -> dict[str, Any]:
-        return {
-            "pending_records": self.store.pending_records(),
-            "watchdog": asdict(self.watchdog),
-            "state": self.state,
-        }
+        return {"pending_records": self.store.pending_records(), "watchdog": asdict(self.watchdog), "state": self.state}
 
     def snapshot(self) -> dict[str, Any]:
-        return {
-            "state": self.state,
-            "watchdog": asdict(self.watchdog),
-            "last_cycle": self.last_cycle,
-            "pending_recovery": self.pending_recovery(),
-        }
+        return {"state": self.state, "watchdog": asdict(self.watchdog), "last_cycle": self.last_cycle, "pending_recovery": self.pending_recovery()}
 
     def _persist_cycle(self, cycle: dict[str, Any]) -> None:
         intent = cycle.get("intent") or {}
-        safety = cycle.get("safety") or {}
         operation = cycle.get("execution") or {}
         reconciliation = cycle.get("reconciliation") or {}
 
         symbol = intent.get("symbol", cycle.get("symbol", "UNKNOWN"))
         action = str(intent.get("intent", "hold"))
         quantity = float(intent.get("quantity", 0) or 0)
-        policy_allowed, policy_reason = self.policy.validate_action(symbol=symbol, action=action)
-        duplicate_allowed, duplicate_reason = self.duplicate_guard.allowed(symbol=symbol, action=action)
 
-        status = RuntimeRecordStatus.REJECTED
-        reason = operation.get("reason") or safety.get("reason") or intent.get("reason", "")
-        if operation.get("executed") and policy_allowed and duplicate_allowed:
-            status = RuntimeRecordStatus.ACCEPTED
-        elif not policy_allowed:
-            reason = policy_reason
-        elif not duplicate_allowed:
-            reason = duplicate_reason
+        status = RuntimeRecordStatus.ACCEPTED if operation.get("executed") else RuntimeRecordStatus.REJECTED
+        reason = operation.get("reason") or intent.get("reason", "")
 
-        self.store.add_record(
-            RuntimeRecord(
-                symbol=symbol,
-                action=action,
-                quantity=quantity,
-                reason=reason,
-                status=status,
-                payload={"cycle": cycle, "policy_allowed": policy_allowed, "duplicate_allowed": duplicate_allowed},
-            )
-        )
+        self.store.add_record(RuntimeRecord(symbol=symbol, action=action, quantity=quantity, reason=reason, status=status, payload={"cycle": cycle}))
 
-        self.store.add_reconciliation(
-            ReconciliationRecord(
-                symbol=cycle.get("symbol", symbol),
-                healthy=bool(reconciliation.get("healthy", False)),
-                missing_on_exchange=list(reconciliation.get("missing_on_exchange", [])),
-                unknown_on_exchange=list(reconciliation.get("unknown_on_exchange", [])),
-                open_order_symbols=list(reconciliation.get("open_order_symbols", [])),
-                payload=reconciliation,
-            )
-        )
+        self.store.add_reconciliation(ReconciliationRecord(symbol=cycle.get("symbol", symbol), healthy=bool(reconciliation.get("healthy", False)), missing_on_exchange=list(reconciliation.get("missing_on_exchange", [])), unknown_on_exchange=list(reconciliation.get("unknown_on_exchange", [])), open_order_symbols=list(reconciliation.get("open_order_symbols", [])), payload=reconciliation))
 
 
 def _jsonable(value: Any) -> Any:
