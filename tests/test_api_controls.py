@@ -2,6 +2,7 @@ from fastapi.testclient import TestClient
 
 import app.api as api_module
 from app.api import app
+from app.strategies import build_strategy
 from app.runtime.state import runtime_state
 
 
@@ -73,6 +74,33 @@ def test_batch_only_runs_for_simulation_profile() -> None:
     response = client.post("/api/simulation/batch")
 
     assert response.status_code == 409
+
+
+def test_batch_endpoint_uses_matching_params_for_each_strategy(monkeypatch) -> None:
+    reset_runtime()
+    client = TestClient(app)
+    seen_strategies = []
+
+    async def fake_run_batch(config_path, base_settings=None):
+        build_strategy(base_settings.strategy.name, base_settings.strategy.params)
+        seen_strategies.append(base_settings.strategy.name)
+        return {
+            "strategy": base_settings.strategy.name,
+            "config_path": config_path,
+            "overall": {"positive_runs": 0},
+        }
+
+    monkeypatch.setattr(api_module, "run_batch", fake_run_batch)
+
+    for strategy in ("breakout", "ema_cross", "rsi_mean_reversion"):
+        select_response = client.post("/api/runtime/strategy", json={"value": strategy})
+        batch_response = client.post("/api/simulation/batch")
+
+        assert select_response.status_code == 200
+        assert batch_response.status_code == 200
+        assert batch_response.json()["aggregate"]["strategy"] == strategy
+
+    assert seen_strategies == ["breakout", "ema_cross", "rsi_mean_reversion"]
 
 
 def test_start_stop_simulation_happy_path(monkeypatch) -> None:
